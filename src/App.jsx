@@ -279,7 +279,7 @@ function PedidoForm({ open, onClose, onSave, users, obras, editData }) {
             role: "user",
             content: [
               { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } },
-              { type: "text", text: "Extraia deste pedido de compra Sienge e retorne JSON no formato exato:\n{\"numero\":\"string\",\"fornecedor\":\"string\",\"obra_code\":\"string\",\"obra_name\":\"string\",\"valor_total\":\"string\",\"data_entrega\":\"string (YYYY-MM-DD ou vazio)\",\"itens\":[{\"descricao\":\"string\",\"unidade\":\"string\",\"quantidade\":\"number\",\"valor_unitario\":\"string\",\"valor_total\":\"string\"}]}\nSe algum campo não existir, use string vazia. Quantidade deve ser número. Extraia TODOS os itens/insumos listados." }
+              { type: "text", text: "Este é um Pedido de Compra da Amorim Coutinho Engenharia gerado pelo Sienge ERP. Extraia os dados e retorne SOMENTE JSON válido, sem texto adicional, sem markdown:\n{\"numero\":\"valor do campo Nº Pedido\",\"fornecedor\":\"Nome do fornecedor em Dados do Fornecedor\",\"obra_code\":\"apenas o número da obra ex: 265\",\"obra_name\":\"nome completo da obra ex: RESIDENCIAL TALMIR ROSA 2, 3 E 5\",\"valor_total\":\"valor numérico do TOTAL DO PEDIDO sem R$\",\"data_entrega\":\"data de previsão no formato YYYY-MM-DD, buscar em Data Previsão ou Datas Vencimento, usar a primeira data encontrada\",\"itens\":[{\"descricao\":\"descrição do insumo\",\"unidade\":\"unidade ex: rl, un, m2, kg\",\"quantidade\":50,\"valor_unitario\":\"valor unitário numérico\",\"valor_total\":\"preço final numérico\"}]}\nRegras: obra_code é só o número antes do traço. quantidade e valores devem ser números. Extraia TODOS os insumos da tabela." }
             ]
           }]
         })
@@ -291,10 +291,16 @@ function PedidoForm({ open, onClose, onSave, users, obras, editData }) {
       const parsed = JSON.parse(clean);
 
       // match obra by code
-      const obraMatch = obras.find(o =>
-        o.code === parsed.obra_code ||
-        (parsed.obra_name && o.name.toLowerCase().includes(parsed.obra_name.toLowerCase().slice(0,8)))
-      );
+      const obraMatch = obras.find(o => {
+        const code = parsed.obra_code ? parsed.obra_code.toString().trim() : "";
+        const name = parsed.obra_name ? parsed.obra_name.toLowerCase() : "";
+        return (
+          o.code === code ||
+          o.code === code.split("-")[0].trim() ||
+          (name && o.name.toLowerCase().includes(name.slice(0,10))) ||
+          (name && name.includes(o.code))
+        );
+      });
 
       const itens = (parsed.itens || []).map((it, i) => ({
         id: uid(),

@@ -203,6 +203,7 @@ function PedidoForm({open,onClose,onSave,users,obras,cu}){
   const [pdfName,setPdfName]=useState("");
   const [preview,setPreview]=useState(null);
   const [itensTxt,setItensTxt]=useState("");
+  const [debugRaw,setDebugRaw]=useState("");
   const fileRef=useRef(null);
 
   useEffect(()=>{if(open){setF({...blank,comprador:String(cu.id)});setMode("pdf");setPdfName("");setPreview(null);setItensTxt("");}}, [open]);
@@ -216,15 +217,41 @@ function PedidoForm({open,onClose,onSave,users,obras,cu}){
     try{
       const resp=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
         model:"claude-sonnet-4-6",max_tokens:2000,
-        system:"Você extrai dados de Pedidos de Compra Sienge da Amorim Coutinho Engenharia. Retorne SOMENTE JSON válido sem markdown.",
+        system:"Você é um extrator de dados de documentos PDF. Leia o documento com atenção e retorne SOMENTE um objeto JSON válido, sem nenhum texto antes ou depois, sem markdown, sem explicações.",
         messages:[{role:"user",content:[
           {type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},
-          {type:"text",text:"Pedido de Compra Amorim Coutinho/Sienge. Retorne JSON:\n{\"numero\":\"Nº Pedido\",\"fornecedor\":\"nome do fornecedor em Dados do Fornecedor\",\"obra_code\":\"apenas número ex:265\",\"obra_name\":\"nome da obra\",\"valor_total\":\"número do TOTAL DO PEDIDO\",\"data_entrega\":\"YYYY-MM-DD da coluna Data Previsão ou primeira data de vencimento\",\"itens\":[{\"descricao\":\"nome do insumo\",\"unidade\":\"unidade\",\"quantidade\":50,\"valor_unitario\":\"número\",\"valor_total\":\"número\"}]}\nRegra: obra_code só o número antes do traço. Extraia TODOS os insumos."}
+          {type:"text",text:`Leia este Pedido de Compra e extraia os dados abaixo. Retorne APENAS o JSON, sem texto adicional.
+
+Campos a extrair:
+- "numero": o valor após "Nº Pedido" ou "N° Pedido" (ex: "76895")
+- "fornecedor": o Nome completo do fornecedor na seção "Dados do Fornecedor"
+- "obra_code": APENAS o número da obra, ex: se aparecer "265 - RESIDENCIAL TALMIR ROSA" retorne "265"
+- "obra_name": o nome completo da obra após o número
+- "valor_total": o valor numérico do "TOTAL DO PEDIDO" sem R$ e sem pontos, use vírgula como decimal
+- "data_entrega": a data de "Data Previsão" de entrega no formato YYYY-MM-DD. Se não houver, use a primeira data de "Datas Vencimento"
+- "itens": array com TODOS os produtos/insumos da tabela, cada um com:
+  - "descricao": nome do insumo/produto
+  - "unidade": unidade de medida (rl, un, m2, kg, sc, m3, etc)
+  - "quantidade": número (ex: 50)
+  - "valor_unitario": preço unitário numérico
+  - "valor_total": preço total do item numérico
+
+Formato exato de retorno:
+{"numero":"76895","fornecedor":"NOME DO FORNECEDOR","obra_code":"265","obra_name":"NOME DA OBRA","valor_total":"5708.50","data_entrega":"2026-06-25","itens":[{"descricao":"Nome do insumo","unidade":"rl","quantidade":50,"valor_unitario":"114.17","valor_total":"5708.50"}]}`}
         ]}]
       })});
       const data=await resp.json();
       const raw=data.content?.[0]?.text||"{}";
-      const parsed=JSON.parse(raw.replace(/```json|```/g,"").trim());
+      console.log("IA response raw:", raw);
+      setDebugRaw(raw);
+      let parsed;
+      try { parsed=JSON.parse(raw.replace(/```json|```/g,"").trim()); }
+      catch(parseErr) {
+        // try to extract JSON from response
+        const jsonMatch=raw.match(/\{[\s\S]*\}/);
+        if(jsonMatch) parsed=JSON.parse(jsonMatch[0]);
+        else throw new Error("IA não retornou JSON válido: "+raw.slice(0,200));
+      }
       const obraMatch=obras.find(o=>{
         const code=(parsed.obra_code||"").toString().trim();
         const name=(parsed.obra_name||"").toLowerCase();
@@ -288,6 +315,12 @@ function PedidoForm({open,onClose,onSave,users,obras,cu}){
                 ))}
               </div>
               {!preview.obraMatch&&<div style={{background:"#FFF8E1",borderRadius:8,padding:"8px 10px",fontSize:12,color:"#5D4037"}}>⚠️ Obra não identificada automaticamente — selecione abaixo.</div>}
+            </div>
+          )}
+          {debugRaw&&!preview&&(
+            <div style={{background:"#FFF8E1",border:"1px solid "+G.gold+"60",borderRadius:10,padding:14,marginBottom:16}}>
+              <div style={{fontWeight:700,fontSize:12,color:G.goldDark,marginBottom:6}}>⚠️ Resposta bruta da IA (para diagnóstico):</div>
+              <pre style={{fontSize:11,color:G.text,whiteSpace:"pre-wrap",wordBreak:"break-all",maxHeight:200,overflowY:"auto",background:"#fff",padding:8,borderRadius:6}}>{debugRaw.slice(0,1000)}</pre>
             </div>
           )}
         </div>

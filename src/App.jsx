@@ -268,7 +268,7 @@ function PedidoForm({ open, onClose, onSave, users, obras, editData }) {
     });
 
     try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      const resp = await fetch("/api/claude", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -601,7 +601,7 @@ function PedidoDetail({ open, onClose, pedido, users, obras, cu, onStatus, onMsg
     const pendList = itens.filter(i=>i.status!=="entregue").map(i=>i.descricao).join(", ");
     const hist = (pedido.messages||[]).slice(-4).map(m=>m.userName+": "+m.text).join("\n");
     try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
+      const r = await fetch("/api/claude", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body:JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:800,
           system:"Assistente de logística da FACTEN – Amorim Coutinho. Objetivo, prático, português.",
@@ -1220,7 +1220,7 @@ function Atas({ open, onClose, atas, obras, cu, onSave }) {
   async function generate() {
     setGenLoad(true);
     try {
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
+      const r = await fetch("/api/claude", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body:JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:1000,
           system:"Você é assistente da FACTEN – Amorim Coutinho. Gere atas formais em português brasileiro.",

@@ -1216,14 +1216,45 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
     // Usa a data mais distante como nova previsaoEntrega do pedido
     const datas = Object.values(reprogItens).filter(Boolean).sort();
     const novaPrevisao = datas[datas.length-1]||pedido.previsaoEntrega;
+    const novaData = new Date(novaPrevisao+"T00:00:00");
+    const hoje     = new Date(); hoje.setHours(0,0,0,0);
+    const aindaAtrasado = novaData < hoje;
 
+    // ── Atualiza pedido
     onUpdateItens(pedido.id, novosItens, pedido.status, {previsaoEntrega: novaPrevisao});
+
+    // ── Sincroniza tarefa de atraso deste pedido
+    setTarefas(ts=>ts.map(t=>{
+      if(t.pedidoId!==pedido.id || t.categoria!=="atraso") return t;
+      if(aindaAtrasado){
+        // Nova data ainda está no passado → mantém aberta, atualiza prazo e descrição
+        return{...t,
+          due: novaPrevisao,
+          title: `Entrega atrasada — Pedido ${pedido.numero} (${pedido.fornecedor||forn.nome})`,
+          description: `Reprogramado por ${cu.name} em ${fmtDT(nowTs())}. Nova previsão: ${fmtD(novaPrevisao)}. Ainda em atraso — contatar fornecedor.`,
+          status: "aberta",
+        };
+      } else {
+        // Nova data está no futuro → fecha a tarefa de atraso
+        return{...t,
+          due: novaPrevisao,
+          status: "resolvida",
+          resolvidaEm: nowTs(),
+          resolvidaPor: `Sistema (reprogramado por ${cu.name} para ${fmtD(novaPrevisao)})`,
+        };
+      }
+    }));
+
     onAddMsg(pedido.id, {id:uid(), userId:cu.id, userName:cu.name, avatar:cu.avatar,
       text:`📅 **Entrega reprogramada** por ${cu.name}. Nova previsão: ${fmtD(novaPrevisao)}.`+
-        (itens.length>1 ? ` Datas por insumo atualizadas individualmente.` : ""),
+        (itens.length>1 ? ` Datas por insumo atualizadas individualmente.` : "")+
+        (!aindaAtrasado ? ` ✅ Tarefa de atraso encerrada.` : ` ⚠️ Data ainda no passado — pedido continua atrasado.`),
       type:"sistema", createdAt:nowTs()});
+
     setShowReprog(false);
-    toast("📅 Entrega reprogramada com sucesso!");
+    toast(aindaAtrasado
+      ? "📅 Reprogramado — atenção: nova data ainda está no passado!"
+      : "📅 Entrega reprogramada! Tarefa de atraso encerrada.");
   }
 
   // ── EXCLUIR / CANCELAR ──────────────────────────────────────────────────────

@@ -891,8 +891,11 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
   const [showRespostas,setShowRespostas] = useState(false);
   const [showBoletoModal,setShowBoletoModal] = useState(null);
   const [confirmAcao,setConfirmAcao] = useState(null);
-  const [itensEdit,setItensEdit] = useState({}); // {id: qtd} — edições pendentes de confirmação
-  const [nfNumero,setNfNumero]   = useState(""); // número da NF para tarefa boleto
+  const [itensEdit,setItensEdit]       = useState({}); // {id: qtd} — edições pendentes de confirmação
+  const [nfNumero,setNfNumero]         = useState(""); // número da NF para tarefa boleto
+  const [showReprog,setShowReprog]     = useState(false); // painel de reprogramação
+  const [reprogItens,setReprogItens]   = useState({}); // {itemId: novaData}
+  const [reprogGeral,setReprogGeral]   = useState(""); // reprogramação geral do pedido
   const chatRef  = useRef(null);
   const fileRef  = useRef(null);
 
@@ -1187,6 +1190,42 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
     // Tarefa NÃO some para o comprador — fica como "Enviado, aguardando almoxarife"
   }
 
+  // ── REPROGRAMAÇÃO ───────────────────────────────────────────────────────────
+  function abrirReprog(){
+    // pré-preenche com datas atuais
+    const inicial = {};
+    itens.forEach(it=>{ inicial[it.id] = it.dataPrevisao||pedido.previsaoEntrega||""; });
+    setReprogItens(inicial);
+    setReprogGeral(pedido.previsaoEntrega||"");
+    setShowReprog(true);
+  }
+
+  function aplicarReprogGeral(data){
+    setReprogGeral(data);
+    const novo = {};
+    itens.forEach(it=>{ novo[it.id] = data; });
+    setReprogItens(novo);
+  }
+
+  function confirmarReprogramacao(){
+    // Atualiza dataPrevisao de cada item
+    const novosItens = itens.map(it=>({
+      ...it,
+      dataPrevisao: reprogItens[it.id]||it.dataPrevisao||pedido.previsaoEntrega
+    }));
+    // Usa a data mais distante como nova previsaoEntrega do pedido
+    const datas = Object.values(reprogItens).filter(Boolean).sort();
+    const novaPrevisao = datas[datas.length-1]||pedido.previsaoEntrega;
+
+    onUpdateItens(pedido.id, novosItens, pedido.status, {previsaoEntrega: novaPrevisao});
+    onAddMsg(pedido.id, {id:uid(), userId:cu.id, userName:cu.name, avatar:cu.avatar,
+      text:`📅 **Entrega reprogramada** por ${cu.name}. Nova previsão: ${fmtD(novaPrevisao)}.`+
+        (itens.length>1 ? ` Datas por insumo atualizadas individualmente.` : ""),
+      type:"sistema", createdAt:nowTs()});
+    setShowReprog(false);
+    toast("📅 Entrega reprogramada com sucesso!");
+  }
+
   // ── EXCLUIR / CANCELAR ──────────────────────────────────────────────────────
   function confirmarAcao() {
     if(confirmAcao==="excluir") {
@@ -1222,6 +1261,8 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
           {atrasado&&<Chip color={G.orange} bg="#FBE9E7">⚠️ Atrasado</Chip>}
           {/* Botão exportar histórico */}
           <button onClick={()=>exportarHistorico(pedido,forn,obra,alm,comp)} title="Exportar histórico do pedido" style={{padding:"5px 10px",borderRadius:8,border:"1.5px solid "+G.border,background:"none",cursor:"pointer",fontSize:12,fontWeight:700,color:G.muted}}>📥 Histórico</button>
+          {/* Botão reprogramar — só comprador */}
+          {isComp&&!isCancelado&&<button onClick={abrirReprog} style={{padding:"5px 10px",borderRadius:8,border:"1.5px solid "+G.blue,background:"none",cursor:"pointer",fontSize:12,fontWeight:700,color:G.blue}}>📅 Reprogramar</button>}
           {/* Cancelar / Excluir — só comprador e não cancelado */}
           {isComp && !isCancelado && <button onClick={()=>setConfirmAcao("cancelar")} style={{padding:"5px 10px",borderRadius:8,border:"1.5px solid "+G.orange,background:"none",cursor:"pointer",fontSize:12,fontWeight:700,color:G.orange}}>❌ Cancelar</button>}
           {isComp && <button onClick={()=>setConfirmAcao("excluir")} style={{padding:"5px 10px",borderRadius:8,border:"1.5px solid "+G.red,background:"none",cursor:"pointer",fontSize:12,fontWeight:700,color:G.red}}>🗑️ Excluir</button>}
@@ -1237,6 +1278,52 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
           <Btn variant="secondary" size="sm" onClick={()=>setConfirmAcao(null)}>Não</Btn>
           <Btn variant="danger"    size="sm" onClick={confirmarAcao}>Sim, confirmar</Btn>
         </div>
+      </div>}
+
+      {/* PAINEL DE REPROGRAMAÇÃO */}
+      {showReprog&&isComp&&<div style={{background:"#E3F2FD",border:"1px solid #90CAF9",borderRadius:12,padding:"14px 18px",marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
+          <div style={{fontWeight:800,fontSize:14,color:"#1565C0"}}>📅 Reprogramar Entrega</div>
+          <div style={{display:"flex",gap:8}}>
+            <Btn variant="secondary" size="sm" onClick={()=>setShowReprog(false)}>Cancelar</Btn>
+            <Btn size="sm" onClick={confirmarReprogramacao}>✅ Confirmar Reprogramação</Btn>
+          </div>
+        </div>
+
+        {/* Reprogramação geral */}
+        <div style={{background:"#fff",borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <span style={{fontSize:13,fontWeight:700,color:"#1565C0",minWidth:160}}>📦 Todos os insumos:</span>
+          <input type="date" value={reprogGeral} onChange={e=>aplicarReprogGeral(e.target.value)}
+            style={{...IB,width:180,padding:"6px 10px",fontSize:13,borderColor:"#90CAF9"}}/>
+          <span style={{fontSize:11,color:G.muted}}>Aplica a mesma data para todos os itens</span>
+        </div>
+
+        {/* Reprogramação por insumo */}
+        {itens.length>0&&<div>
+          <div style={{fontSize:11,fontWeight:700,color:"#1565C0",textTransform:"uppercase",marginBottom:6,letterSpacing:"0.05em"}}>
+            Ou reprogramar por insumo individualmente:
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            {itens.map(it=>(
+              <div key={it.id} style={{display:"flex",alignItems:"center",gap:10,background:"#fff",borderRadius:8,padding:"8px 12px",border:"1px solid #BBDEFB",flexWrap:"wrap"}}>
+                <div style={{flex:1,minWidth:200}}>
+                  <div style={{fontSize:12,fontWeight:600}}>{it.descricao}</div>
+                  <div style={{fontSize:10,color:G.muted}}>{it.quantidade} {it.unidade} · Atual: {fmtD(it.dataPrevisao||pedido.previsaoEntrega)||"—"}</div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <input type="date" value={reprogItens[it.id]||""}
+                    onChange={e=>{setReprogItens(prev=>({...prev,[it.id]:e.target.value}));setReprogGeral("");}}
+                    style={{...IB,width:160,padding:"5px 8px",fontSize:12,
+                      borderColor:reprogItens[it.id]&&reprogItens[it.id]!==(it.dataPrevisao||pedido.previsaoEntrega)?"#1976D2":"#BBDEFB",
+                      background:reprogItens[it.id]&&reprogItens[it.id]!==(it.dataPrevisao||pedido.previsaoEntrega)?"#E3F2FD":"#fff"
+                    }}/>
+                  {reprogItens[it.id]&&reprogItens[it.id]!==(it.dataPrevisao||pedido.previsaoEntrega)&&
+                    <span style={{fontSize:10,color:"#1976D2",fontWeight:700}}>● alterado</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>}
       </div>}
 
       {/* INFO GRID */}
@@ -2077,45 +2164,122 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
       <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}><Btn variant="secondary" onClick={()=>setShowNew(false)}>Cancelar</Btn><Btn onClick={createTask}>Criar</Btn></div>
     </div>}
 
+    {/* ── AGRUPAMENTO POR CRITICIDADE ── */}
     {filtered.length===0
-      ?<EmptyState icon="✅" title="Nenhuma tarefa nesta categoria" subtitle="As tarefas criadas ao importar pedidos aparecerão aqui."/>
-      :<div>{filtered.map(t=><TarefaRow key={t.id} t={t} pedidos={pedidos} users={users} obras={obras} onClick={()=>setSelTarefa(t)} onQuickStatus={quickStatus} toast={toast}/>)}</div>}
+      ?<EmptyState icon="✅" title="Nenhuma tarefa nesta categoria" subtitle="Tudo em dia!"/>
+      :<div>
+        {(()=>{
+          const hoje=new Date();hoje.setHours(0,0,0,0);
+          // Classificar cada tarefa por criticidade
+          function criticidade(t){
+            if(t.status==="resolvida") return 4;
+            if(t.categoria==="atraso") return 0;
+            if(t.categoria==="boleto"&&t.status!=="resolvida") return 0;
+            if(!t.due) return 3;
+            const d=new Date(t.due+"T00:00:00");
+            const diff=Math.round((d-hoje)/864e5);
+            if(diff<0)  return 0; // vencida
+            if(diff<=3) return 1; // urgente ≤3 dias
+            if(diff<=7) return 2; // atenção ≤7 dias
+            return 3;             // normal
+          }
+          const GRUPOS=[
+            {key:0,icon:"🔴",label:"Crítico / Vencido",    color:G.red,    bg:"#FFEBEE",border:"#EF9A9A"},
+            {key:1,icon:"🟠",label:"Urgente (≤ 3 dias)",   color:G.orange, bg:"#FBE9E7",border:"#FFCC80"},
+            {key:2,icon:"⚠️",label:"Atenção (≤ 7 dias)",  color:"#F9A825", bg:"#FFFDE7",border:"#FFF176"},
+            {key:3,icon:"🟢",label:"Em dia (> 7 dias)",    color:G.green,  bg:"#E8F5E9",border:"#A5D6A7"},
+          ];
+          return GRUPOS.map(g=>{
+            const itens=filtered.filter(t=>criticidade(t)===g.key);
+            if(!itens.length) return null;
+            return(
+              <div key={g.key} style={{marginBottom:20}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"6px 12px",borderRadius:8,background:g.bg,border:"1px solid "+g.border}}>
+                  <span style={{fontSize:16}}>{g.icon}</span>
+                  <span style={{fontSize:12,fontWeight:800,color:g.color,textTransform:"uppercase",letterSpacing:"0.05em"}}>{g.label}</span>
+                  <span style={{background:g.color,color:"#fff",borderRadius:20,fontSize:10,fontWeight:800,padding:"1px 8px",marginLeft:4}}>{itens.length}</span>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:5,paddingLeft:4}}>
+                  {itens.map(t=>{
+                    const ped=pedidos.find(p=>p.id===t.pedidoId);
+                    const resp=users.find(u=>String(u.id)===String(t.assignedTo));
+                    const obra=obras.find(o=>String(o.id)===String(t.obra||(ped?.obra)));
+                    const cfg=TCAT[t.categoria]||TCAT.acompanhamento;
+                    const isB=t.categoria==="boleto";
+                    const temAnexo=(t.anexos||[]).length>0;
+                    return(
+                      <div key={t.id} onClick={()=>setSelTarefa(t)}
+                        style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,
+                          background:G.surface,border:"1px solid "+g.border,cursor:"pointer",
+                          borderLeft:"3px solid "+g.color,
+                          boxShadow:selTarefa?.id===t.id?"0 0 0 2px "+g.color+"40":"none"}}
+                        onMouseEnter={e=>e.currentTarget.style.background=g.bg}
+                        onMouseLeave={e=>e.currentTarget.style.background=G.surface}>
+                        <span style={{fontSize:15,flexShrink:0}}>{cfg.icon}</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:12,fontWeight:700,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                          <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                            {resp&&<span style={{fontSize:10,color:G.muted}}>👤 {resp.name}</span>}
+                            {obra&&<span style={{fontSize:10,color:G.muted}}>🏗️ {obra.code}</span>}
+                            {ped&&<span style={{fontSize:10,color:G.blue}}>📋 Ped. {ped.numero}</span>}
+                            {t.due&&<span style={{fontSize:10,color:g.color,fontWeight:700}}>📅 {fmtD(t.due)}</span>}
+                            <span style={{fontSize:10,background:cfg.bg,color:cfg.color,borderRadius:10,padding:"1px 6px",fontWeight:700}}>{cfg.label}</span>
+                            {isB&&<span style={{fontSize:10,background:temAnexo?"#E8F5E9":"#F3E5F5",color:temAnexo?G.green:G.purple,borderRadius:10,padding:"1px 6px",fontWeight:700}}>{temAnexo?"📎 Boleto anexado":"🧾 Aguardando boleto"}</span>}
+                          </div>
+                        </div>
+                        <div style={{display:"flex",gap:4,flexShrink:0}}>
+                          {t.status!=="resolvida"&&<button onClick={e=>{e.stopPropagation();quickStatus(t.id,"andamento");}} title="Em andamento" style={{padding:"3px 8px",borderRadius:6,border:"1.5px solid "+G.gold,background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:G.gold}}>▶</button>}
+                          {t.status!=="resolvida"&&<button onClick={e=>{e.stopPropagation();quickStatus(t.id,"resolvida");}} title="Concluir" style={{padding:"3px 8px",borderRadius:6,border:"1.5px solid "+G.green,background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:G.green}}>✅</button>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          });
+        })()}
+      </div>}
 
-    {/* Detalhe Tarefa */}
-    {tDetail&&<Modal open={!!selTarefa} onClose={()=>setSelTarefa(null)} title={"Tarefa — "+(TCAT[tDetail.categoria]?.icon||"📋")+" "+(TCAT[tDetail.categoria]?.label||"")} width={660}>
-      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
-        <Chip color={(TCAT[tDetail.categoria]||TCAT.acompanhamento).color} bg={(TCAT[tDetail.categoria]||TCAT.acompanhamento).bg}>{(TCAT[tDetail.categoria]||TCAT.acompanhamento).icon} {(TCAT[tDetail.categoria]||TCAT.acompanhamento).label}</Chip>
-        <Chip color={(TSTAT[tDetail.status]||TSTAT.aberta).color} bg={(TSTAT[tDetail.status]||TSTAT.aberta).bg}>{(TSTAT[tDetail.status]||TSTAT.aberta).icon} {(TSTAT[tDetail.status]||TSTAT.aberta).label}</Chip>
-      </div>
-      <div style={{fontWeight:700,fontSize:15,marginBottom:8}}>{tDetail.title}</div>
-      {tDetail.description&&<div style={{background:G.alt,borderRadius:8,padding:"10px 12px",marginBottom:12,fontSize:13,lineHeight:1.6}}>{tDetail.description}</div>}
-      {tDetail.status==="resolvida"&&<div style={{background:"#E8F5E9",border:"1px solid #A5D6A7",borderRadius:8,padding:"10px 12px",marginBottom:12,fontSize:13,color:G.greenDark}}>🔔 Concluída — verifique o retorno do comprador e confirme o fechamento.</div>}
-      <div style={{marginBottom:14}}>
-        <div style={{fontSize:11,fontWeight:700,color:G.muted,textTransform:"uppercase",marginBottom:8}}>Alterar Status</div>
-        <div style={{display:"flex",gap:8}}>
-          {Object.entries(TSTAT).map(([k,v])=>{
-            const isBlocked = k==="resolvida" && tDetail.categoria==="boleto" && !(tDetail.anexos||[]).length;
-            return <button key={k} onClick={()=>{if(!isBlocked){quickStatus(tDetail.id,k);setSelTarefa(st=>({...st,status:k}));}else toast("⚠️ Anexe o boleto antes de concluir.");}}
-              title={isBlocked?"Anexe o boleto primeiro":v.label}
-              style={{padding:"7px 16px",borderRadius:20,fontSize:12,fontWeight:700,cursor:isBlocked?"not-allowed":"pointer",opacity:isBlocked?.4:1,border:"2px solid "+(tDetail.status===k?v.color:"#DDE8DD"),background:tDetail.status===k?v.bg:"none",color:tDetail.status===k?v.color:G.muted}}>{v.icon} {v.label}</button>;
-          })}
+    {/* DETALHE DA TAREFA */}
+    {tDetail&&(
+      <div style={{background:G.surface,border:"1px solid "+G.border,borderRadius:12,padding:18,marginTop:14}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14,fontWeight:800,marginBottom:4}}>{tDetail.title}</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <span style={{fontSize:11,background:TCAT[tDetail.categoria]?.bg||G.alt,color:TCAT[tDetail.categoria]?.color||G.muted,borderRadius:10,padding:"2px 8px",fontWeight:700}}>{TCAT[tDetail.categoria]?.icon} {TCAT[tDetail.categoria]?.label}</span>
+              {Object.entries(TSTAT).map(([k,v])=>{
+                const isBlocked = k==="resolvida" && tDetail.categoria==="boleto" && !(tDetail.anexos||[]).length;
+                return <button key={k} onClick={()=>{if(!isBlocked){quickStatus(tDetail.id,k);setSelTarefa(st=>({...st,status:k}));}else toast("⚠️ Anexe o boleto antes de concluir.");}}
+                  title={isBlocked?"Anexe o boleto primeiro":v.label}
+                  style={{padding:"4px 12px",borderRadius:20,fontSize:11,fontWeight:700,cursor:isBlocked?"not-allowed":"pointer",opacity:isBlocked?.4:1,border:"2px solid "+(tDetail.status===k?v.color:"#DDE8DD"),background:tDetail.status===k?v.bg:"none",color:tDetail.status===k?v.color:G.muted}}>{v.icon} {v.label}</button>;
+              })}
+            </div>
+          </div>
+          <button onClick={()=>setSelTarefa(null)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:G.muted}}>✕</button>
         </div>
+        {tDetail.description&&<div style={{fontSize:12,color:G.muted,marginBottom:12,background:G.alt,borderRadius:8,padding:"8px 12px"}}>{tDetail.description}</div>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 12px",marginBottom:12}}>
+          <Fld label="Responsável">
+            <Sel value={tDetail.assignedTo||""} onChange={e=>{const v=Number(e.target.value);setTarefas(ts=>ts.map(t=>t.id===tDetail.id?{...t,assignedTo:v}:t));setSelTarefa(st=>({...st,assignedTo:v}));}}>
+              <option value="">—</option>
+              {users.filter(u=>u.active).map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+            </Sel>
+          </Fld>
+          <Fld label="Prazo">
+            <Inp type="date" value={tDetail.due||""} onChange={e=>{const v=e.target.value;setTarefas(ts=>ts.map(t=>t.id===tDetail.id?{...t,due:v}:t));setSelTarefa(st=>({...st,due:v}));}}/>
+          </Fld>
+          <Fld label="Criado por"><div style={{padding:"9px 12px",fontSize:13,color:G.muted}}>{tDetail.createdBy} · {fmtD(tDetail.createdAt)}</div></Fld>
+        </div>
+        {tDetail.pedidoId&&<div style={{fontSize:12,color:G.blue,marginTop:4,fontWeight:600}}>
+          📋 Pedido: {pedidos.find(p=>p.id===tDetail.pedidoId)?.numero||tDetail.pedidoId}
+        </div>}
       </div>
-      <Fld label="Responsável">
-        <Sel value={tDetail.assignedTo||""} onChange={e=>{const v=Number(e.target.value);setTarefas(ts=>ts.map(t=>t.id===tDetail.id?{...t,assignedTo:v}:t));setSelTarefa(st=>({...st,assignedTo:v}));}}>
-          {users.filter(u=>u.active).map(u=><option key={u.id} value={u.id}>{u.name} — {ROLES[u.role]}</option>)}
-        </Sel>
-      </Fld>
-      <Fld label="Prazo">
-        <Inp type="date" value={tDetail.due||""} onChange={e=>{setTarefas(ts=>ts.map(t=>t.id===tDetail.id?{...t,due:e.target.value}:t));setSelTarefa(st=>({...st,due:e.target.value}));}}/>
-      </Fld>
-      <div style={{fontSize:11,fontWeight:700,color:G.muted,textTransform:"uppercase",marginBottom:6}}>Criado por {tDetail.createdBy} · {fmtD(tDetail.createdAt)}</div>
-    </Modal>}
+    )}
   </div>;
 }
 
-// ── ROOT APP ──────────────────────────────────────────────────────────────────
-// ── PAINEL DE ACOMPANHAMENTO ──────────────────────────────────────────────────
 function PainelAcompanhamento({open, onClose, pedidos, tarefas, users, obras, onOpenPedido}) {
   const [filtro, setFiltro] = useState("todos");
   const hoje = new Date();
@@ -2802,8 +2966,45 @@ export default function App(){
           {page==="pedidos"&&(
             filteredP.length===0
               ?<EmptyState icon="📦" title="Nenhum pedido encontrado" subtitle={isComp?"Importe um PDF do Sienge ou crie manualmente.":"Aguardando pedidos dos compradores."}/>
-              :<div style={{display:"flex",flexDirection:"column",gap:6}}>
-                {filteredP.map(p=><PedidoRow key={p.id} p={p} users={users} obras={obras} fornecedores={fornecedores} tarefas={tarefas} onClick={()=>setDetailP(p)}/>)}
+              :<div>
+                {(()=>{
+                  const hoje=new Date();hoje.setHours(0,0,0,0);
+                  function bloco(p){
+                    if(["cancelado"].includes(p.status)) return 4;
+                    if(["entregue"].includes(p.status))  return 5;
+                    if(!p.previsaoEntrega) return 3;
+                    const d=new Date(p.previsaoEntrega+"T00:00:00");
+                    const diff=Math.round((d-hoje)/864e5);
+                    if(diff<0)   return 0; // Atrasado
+                    if(diff<=7)  return 1; // ≤7 dias
+                    if(diff<=15) return 2; // 8-15 dias
+                    return 3;              // >15 dias
+                  }
+                  const BLOCOS=[
+                    {key:0,icon:"🔴",label:"Atrasados",                    color:G.red,    bg:"#FFEBEE",borda:"#EF9A9A"},
+                    {key:1,icon:"⚠️",label:"Entrega nos próximos 7 dias",  color:G.orange, bg:"#FBE9E7",borda:"#FFCC80"},
+                    {key:2,icon:"📅",label:"Entrega em 8 a 15 dias",       color:"#1976D2", bg:"#E3F2FD",borda:"#90CAF9"},
+                    {key:3,icon:"🟢",label:"Entrega futura (acima de 15 dias)", color:G.green, bg:"#E8F5E9",borda:"#A5D6A7"},
+                    {key:5,icon:"✅",label:"Entregues",                    color:G.green,  bg:"#F1F8E9",borda:"#DCEDC8"},
+                    {key:4,icon:"❌",label:"Cancelados",                   color:G.muted,  bg:"#FAFAFA", borda:G.border},
+                  ];
+                  return BLOCOS.map(b=>{
+                    const itens=filteredP.filter(p=>bloco(p)===b.key);
+                    if(!itens.length) return null;
+                    return(
+                      <div key={b.key} style={{marginBottom:20}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"8px 14px",borderRadius:10,background:b.bg,border:"1px solid "+b.borda}}>
+                          <span style={{fontSize:18}}>{b.icon}</span>
+                          <span style={{fontSize:13,fontWeight:800,color:b.color}}>{b.label}</span>
+                          <span style={{background:b.color,color:"#fff",borderRadius:20,fontSize:11,fontWeight:800,padding:"2px 10px",marginLeft:4}}>{itens.length}</span>
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                          {itens.map(p=><PedidoRow key={p.id} p={p} users={users} obras={obras} fornecedores={fornecedores} tarefas={tarefas} onClick={()=>setDetailP(p)}/>)}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
           )}
 

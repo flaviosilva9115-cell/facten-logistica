@@ -210,25 +210,79 @@ async function callIA(messages, maxTokens=1000, system="Assistente FACTEN.") {
 // ── PDF EXTRACTOR ─────────────────────────────────────────────────────────────
 async function extractPedidoPDF(b64) {
   const system = `Você é extrator especializado de Pedidos de Compra Sienge da Amorim Coutinho Engenharia. REGRA ABSOLUTA: retorne SOMENTE JSON válido, sem texto antes ou depois, sem markdown, sem backticks, sem comentários.`;
-  const prompt = `Extraia os dados deste Pedido de Compra Sienge e retorne EXATAMENTE este JSON:
-{"numero":"","cnpj_fornecedor":"","nome_fornecedor":"","codigo_obra":"","nome_obra":"","valor_total":"","data_entrega":"YYYY-MM-DD","itens":[{"descricao":"","unidade":"","quantidade":1,"valor_unitario":"","valor_total":""}]}
+  const prompt = `Extraia os dados deste Pedido de Compra Sienge e retorne EXATAMENTE este JSON preenchido:
+{
+  "numero": "",
+  "data_pedido": "YYYY-MM-DD",
+  "cnpj_fornecedor": "",
+  "nome_fornecedor": "",
+  "codigo_obra": "",
+  "nome_obra": "",
+  "local_entrega": "",
+  "cond_pagamento": "",
+  "datas_vencimento": ["YYYY-MM-DD"],
+  "tipo_frete": "",
+  "valor_frete": "0.00",
+  "total_mercadorias": "0.00",
+  "desconto_total": "0.00",
+  "valor_total": "0.00",
+  "data_entrega": "YYYY-MM-DD",
+  "observacoes": "",
+  "itens": [
+    {
+      "codigo": "",
+      "descricao": "",
+      "norma": "",
+      "unidade": "",
+      "quantidade": 1,
+      "valor_unitario": "0.00",
+      "desconto_rs": "0.00",
+      "perc_desconto": "0.00",
+      "perc_ipi": "0.00",
+      "perc_acrescimo": "0.00",
+      "valor_final": "0.00",
+      "data_previsao": "YYYY-MM-DD"
+    }
+  ]
+}
 
-INSTRUÇÕES CAMPO A CAMPO:
-- numero: apenas dígitos após "Nº Pedido" ou "N° Pedido" (ex: "76895")
-- cnpj_fornecedor: CNPJ do fornecedor (ex: "12.345.678/0001-90") ou ""
-- nome_fornecedor: Razão Social completa do fornecedor na seção "Dados do Fornecedor"
-- codigo_obra: SOMENTE o número antes do traço (ex: "265 - Residencial Talmir" → "265")
-- nome_obra: nome após o traço (ex: "Residencial Talmir Rosa 2, 3 e 5")
-- valor_total: valor numérico do TOTAL DO PEDIDO sem R$ e sem pontos de milhar (ex: "5708.50")
-- data_entrega: YYYY-MM-DD da coluna "Data Previsão". Se não houver, use 1ª data de "Datas Vencimento"
-- itens: TODOS os produtos da tabela — descricao, unidade (un/m2/m3/kg/sc/rl/pç), quantidade (número inteiro), valor_unitario e valor_total numéricos
+INSTRUÇÕES:
+- numero: dígitos após "Nº Pedido" (ex: "76801")
+- data_pedido: data do pedido formato YYYY-MM-DD
+- cnpj_fornecedor: CNPJ na seção "Dados do Fornecedor"
+- nome_fornecedor: Razão Social completa do fornecedor (sem o código numérico inicial)
+- codigo_obra: SOMENTE o número antes do traço em "Dados da Obra" (ex: "245")
+- nome_obra: nome após o traço (ex: "BE LIFE CLUB - 3")
+- local_entrega: campo "Local Entrega"
+- cond_pagamento: campo "Cond. Pagamento" (ex: "BOLETO 28 DIAS")
+- datas_vencimento: lista de todas as datas em "Datas Vencimento" no formato YYYY-MM-DD
+- tipo_frete: campo "Frete" (ex: "FOB" ou "CIF")
+- valor_frete: valor numérico do Frete (sem R$, ponto como decimal)
+- total_mercadorias: "Total das mercadorias" numérico
+- desconto_total: "Desconto" numérico
+- valor_total: "TOTAL DO PEDIDO" numérico
+- data_entrega: Data Previsão do 1º item (YYYY-MM-DD). Se vazia use 1ª data de vencimento
+- observacoes: texto completo das Observações
+- itens: TODOS os itens da tabela. Para cada item:
+  - codigo: código antes do traço na coluna Insumo (ex: "1458")
+  - descricao: nome completo do insumo após o traço
+  - norma: coluna Norma (pode ser vazia)
+  - unidade: unidade de medida
+  - quantidade: número
+  - valor_unitario: Preço Unit. numérico
+  - desconto_rs: Desc(R$) numérico
+  - perc_desconto: % Desc numérico
+  - perc_ipi: % IPI numérico
+  - perc_acrescimo: % Acr numérico
+  - valor_final: Preço Final numérico (valor total do item)
+  - data_previsao: Data Previsão do item YYYY-MM-DD
 
 Retorne APENAS o JSON. NADA MAIS.`;
 
   const resp = await callIA([{role:"user",content:[
     {type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},
     {type:"text",text:prompt}
-  ]}], 4000, system);
+  ]}], 5000, system);
 
   let json = resp.trim().replace(/^```(?:json)?\s*/i,"").replace(/\s*```$/,"").trim();
   const m = json.match(/\{[\s\S]*\}/);
@@ -416,7 +470,12 @@ function Section({title,right,children,style:sx={}}){
 // ══ PedidoForm ══
 
 function PedidoForm({open,onClose,onSave,users,obras,fornecedores,onAutoCreate,cu}){
-  const blank={numero:"",fornecedorId:"",obra:"",comprador:String(cu.id),valor:"",previsaoEntrega:"",observacao:"",itens:[]};
+  const blank={
+    numero:"", fornecedorId:"", obra:"", comprador:String(cu.id),
+    valor:"", totalMercadorias:"", desconto:"", valorFrete:"",
+    tipoFrete:"", condPagamento:"", datasVencimento:[],
+    previsaoEntrega:"", localEntrega:"", observacao:"", itens:[]
+  };
   const [mode,setMode]       = useState("pdf");
   const [f,setF]             = useState(blank);
   const [pdfLoad,setPdfLoad] = useState(false);
@@ -447,20 +506,39 @@ function PedidoForm({open,onClose,onSave,users,obras,fornecedores,onAutoCreate,c
 
       const almox = obraFinal ? users.find(u=>u.id===obraFinal.almoxarife) : null;
       const itens = (parsed.itens||[]).map(it=>({
-        id:uid(), descricao:it.descricao||"", unidade:it.unidade||"un",
-        quantidade:Number(it.quantidade)||1, qtdEntregue:0,
-        valorUnitario:String(it.valor_unitario||""), valorTotal:String(it.valor_total||""),
-        status:"pendente"
+        id:uid(),
+        codigo:         String(it.codigo||""),
+        descricao:      it.descricao||"",
+        norma:          it.norma||"",
+        unidade:        it.unidade||"un",
+        quantidade:     Number(it.quantidade)||1,
+        qtdEntregue:    0,
+        valorUnitario:  String(it.valor_unitario||""),
+        descontoRs:     String(it.desconto_rs||"0"),
+        percDesconto:   String(it.perc_desconto||"0"),
+        percIpi:        String(it.perc_ipi||"0"),
+        percAcrescimo:  String(it.perc_acrescimo||"0"),
+        valorFinal:     String(it.valor_final||it.valor_total||""),
+        dataPrevisao:   it.data_previsao||parsed.data_entrega||"",
+        status:         "pendente"
       }));
 
       setF({
-        numero:         parsed.numero||"",
-        fornecedorId:   fornFinal?String(fornFinal.id):"",
-        obra:           obraFinal?String(obraFinal.id):"",
-        comprador:      String(cu.id),
-        valor:          parsed.valor_total||"",
-        previsaoEntrega:parsed.data_entrega||"",
-        observacao:"", itens
+        numero:           parsed.numero||"",
+        fornecedorId:     fornFinal?String(fornFinal.id):"",
+        obra:             obraFinal?String(obraFinal.id):"",
+        comprador:        String(cu.id),
+        valor:            parsed.valor_total||"",
+        totalMercadorias: parsed.total_mercadorias||"",
+        desconto:         parsed.desconto_total||"",
+        valorFrete:       parsed.valor_frete||"",
+        tipoFrete:        (parsed.tipo_frete||"").toUpperCase(),
+        condPagamento:    parsed.cond_pagamento||"",
+        datasVencimento:  parsed.datas_vencimento||[],
+        previsaoEntrega:  parsed.data_entrega||"",
+        localEntrega:     parsed.local_entrega||"",
+        observacao:       parsed.observacoes||"",
+        itens
       });
       setPreview({obraFinal,almox,fornFinal,parsed,itens,obraCreated:oResult.created,fornCreated:fResult.created});
     }catch(err){
@@ -524,7 +602,7 @@ function PedidoForm({open,onClose,onSave,users,obras,fornecedores,onAutoCreate,c
 
       {/* campos do formulário */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
-        <Fld label="Nº Pedido" required><Inp placeholder="76895" value={f.numero} onChange={e=>set("numero",e.target.value)}/></Fld>
+        <Fld label="Nº Pedido" required><Inp placeholder="76801" value={f.numero} onChange={e=>set("numero",e.target.value)}/></Fld>
         <Fld label="Fornecedor">
           <Sel value={f.fornecedorId} onChange={e=>set("fornecedorId",e.target.value)}>
             <option value="">Selecionar…</option>
@@ -545,9 +623,39 @@ function PedidoForm({open,onClose,onSave,users,obras,fornecedores,onAutoCreate,c
           </Sel>
         </Fld>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
-        <Fld label="Valor Total (R$)"><Inp value={f.valor} onChange={e=>set("valor",e.target.value)} placeholder="0,00"/></Fld>
-        <Fld label="Previsão de Entrega" required><Inp type="date" value={f.previsaoEntrega} onChange={e=>set("previsaoEntrega",e.target.value)}/></Fld>
+      <Fld label="Local de Entrega"><Inp value={f.localEntrega||""} onChange={e=>set("localEntrega",e.target.value)} placeholder="Endereço de entrega na obra"/></Fld>
+
+      {/* Valores e Pagamento */}
+      <div style={{background:"#F0F5F0",borderRadius:10,padding:"12px 14px",marginBottom:12,border:"1px solid #DDE8DD"}}>
+        <div style={{fontSize:11,fontWeight:700,color:G.muted,textTransform:"uppercase",marginBottom:10,letterSpacing:"0.06em"}}>💰 Valores e Pagamento</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"0 12px"}}>
+          <Fld label="Total Mercadorias (R$)"><Inp value={f.totalMercadorias||""} onChange={e=>set("totalMercadorias",e.target.value)} placeholder="0,00"/></Fld>
+          <Fld label="Desconto (R$)"><Inp value={f.desconto||""} onChange={e=>set("desconto",e.target.value)} placeholder="0,00"/></Fld>
+          <Fld label="TOTAL DO PEDIDO (R$)"><Inp value={f.valor} onChange={e=>set("valor",e.target.value)} placeholder="0,00" style={{fontWeight:700,background:"#E8F5E9",borderColor:"#4CAF50"}}/></Fld>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 12px"}}>
+          <Fld label="Tipo de Frete">
+            <Sel value={f.tipoFrete||""} onChange={e=>set("tipoFrete",e.target.value)}>
+              <option value="">—</option>
+              <option value="FOB">FOB — por conta do comprador</option>
+              <option value="CIF">CIF — por conta do vendedor</option>
+            </Sel>
+          </Fld>
+          <Fld label={f.tipoFrete==="FOB"?"⚠️ Valor Frete FOB (R$)":"Valor Frete (R$)"}>
+            <Inp value={f.valorFrete||""} onChange={e=>set("valorFrete",e.target.value)} placeholder="0,00"
+              style={{borderColor:f.tipoFrete==="FOB"&&f.valorFrete?"#FF7043":"#DDE8DD",background:f.tipoFrete==="FOB"&&f.valorFrete?"#FBE9E7":"#fff"}}/>
+          </Fld>
+          <Fld label="Previsão de Entrega" required><Inp type="date" value={f.previsaoEntrega} onChange={e=>set("previsaoEntrega",e.target.value)}/></Fld>
+        </div>
+        {f.tipoFrete==="FOB"&&<div style={{background:"#FBE9E7",border:"1px solid #FF704330",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#E64A19",marginBottom:10,fontWeight:600}}>
+          ⚠️ Frete FOB: o almoxarife deverá confirmar o recebimento do <strong>CT-e / Conhecimento de Frete</strong> no ato da entrega.
+        </div>}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 12px"}}>
+          <Fld label="Condição de Pagamento"><Inp value={f.condPagamento||""} onChange={e=>set("condPagamento",e.target.value)} placeholder="ex: BOLETO 28 DIAS"/></Fld>
+          <Fld label="Data(s) de Vencimento">
+            <Inp value={(f.datasVencimento||[]).join(", ")} onChange={e=>set("datasVencimento",e.target.value.split(",").map(s=>s.trim()).filter(Boolean))} placeholder="YYYY-MM-DD, YYYY-MM-DD"/>
+          </Fld>
+        </div>
       </div>
       <Fld label="Observações"><Txa rows={2} value={f.observacao} onChange={e=>set("observacao",e.target.value)}/></Fld>
 
@@ -560,15 +668,19 @@ function PedidoForm({open,onClose,onSave,users,obras,fornecedores,onAutoCreate,c
           <div style={{display:"flex",justifyContent:"flex-end",marginTop:6}}><Btn size="sm" variant="ghost" onClick={addItensManuais}>+ Adicionar</Btn></div>
         </div>
         {f.itens.length>0&&<div style={{border:"1px solid "+G.border,borderRadius:10,overflow:"hidden"}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 60px 80px 80px 24px",background:G.nav,padding:"8px 12px",fontSize:10,fontWeight:700,color:"rgba(255,255,255,.7)",textTransform:"uppercase",gap:6}}>
-            <span>Descrição</span><span>Un.</span><span>Qtd.</span><span>Vl.Unit.</span><span></span>
+          <div style={{display:"grid",gridTemplateColumns:"60px 1fr 55px 70px 70px 60px 60px 70px 24px",background:G.nav,padding:"8px 12px",fontSize:9,fontWeight:700,color:"rgba(255,255,255,.7)",textTransform:"uppercase",gap:4}}>
+            <span>Código</span><span>Descrição</span><span>Un.</span><span>Qtd.</span><span>Vl.Unit.</span><span>%IPI</span><span>%Desc</span><span>Vl.Final</span><span></span>
           </div>
           {f.itens.map((it,i)=>(
-            <div key={it.id} style={{display:"grid",gridTemplateColumns:"1fr 60px 80px 80px 24px",padding:"6px 12px",borderTop:"1px solid "+G.border,background:i%2===0?"#fff":G.alt,alignItems:"center",gap:6}}>
-              <input value={it.descricao} onChange={e=>updItem(it.id,"descricao",e.target.value)} style={{...IB,padding:"4px 7px",fontSize:12}}/>
-              <input value={it.unidade}   onChange={e=>updItem(it.id,"unidade",e.target.value)}   style={{...IB,padding:"4px 7px",fontSize:12}}/>
-              <input type="number" value={it.quantidade} onChange={e=>updItem(it.id,"quantidade",Number(e.target.value))} style={{...IB,padding:"4px 7px",fontSize:12}}/>
-              <input value={it.valorUnitario} onChange={e=>updItem(it.id,"valorUnitario",e.target.value)} style={{...IB,padding:"4px 7px",fontSize:12}}/>
+            <div key={it.id} style={{display:"grid",gridTemplateColumns:"60px 1fr 55px 70px 70px 60px 60px 70px 24px",padding:"5px 12px",borderTop:"1px solid "+G.border,background:i%2===0?"#fff":G.alt,alignItems:"center",gap:4}}>
+              <input value={it.codigo||""} onChange={e=>updItem(it.id,"codigo",e.target.value)} style={{...IB,padding:"3px 6px",fontSize:11}}/>
+              <input value={it.descricao} onChange={e=>updItem(it.id,"descricao",e.target.value)} style={{...IB,padding:"3px 6px",fontSize:11}}/>
+              <input value={it.unidade}   onChange={e=>updItem(it.id,"unidade",e.target.value)}   style={{...IB,padding:"3px 6px",fontSize:11}}/>
+              <input type="number" value={it.quantidade} onChange={e=>updItem(it.id,"quantidade",Number(e.target.value))} style={{...IB,padding:"3px 6px",fontSize:11}}/>
+              <input value={it.valorUnitario} onChange={e=>updItem(it.id,"valorUnitario",e.target.value)} style={{...IB,padding:"3px 6px",fontSize:11}}/>
+              <input value={it.percIpi||"0"} onChange={e=>updItem(it.id,"percIpi",e.target.value)} style={{...IB,padding:"3px 6px",fontSize:11}}/>
+              <input value={it.percDesconto||"0"} onChange={e=>updItem(it.id,"percDesconto",e.target.value)} style={{...IB,padding:"3px 6px",fontSize:11}}/>
+              <input value={it.valorFinal||""} onChange={e=>updItem(it.id,"valorFinal",e.target.value)} style={{...IB,padding:"3px 6px",fontSize:11,fontWeight:700,background:"#E8F5E9"}}/>
               <button onClick={()=>removeItem(it.id)} style={{background:"none",border:"none",cursor:"pointer",color:G.light,fontSize:15,padding:0}}>✕</button>
             </div>
           ))}
@@ -624,20 +736,25 @@ async function exportarHistorico(pedido, forn, obra, alm, comp) {
       <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#333;font-weight:600">${m.userName}</td>
       <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px">${(m.text||"").replace(/<[^>]+>/g,"").replace(/\*\*/g,"")}</td>
     </tr>`).join("");
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Histórico Pedido ${pedido.numero}</title>
-  <style>body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#1A2B1A}h1{color:#2E7D32;border-bottom:3px solid #4CAF50;padding-bottom:8px}h2{color:#2E7D32;font-size:14px;margin:20px 0 8px}table{width:100%;border-collapse:collapse}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}.info-card{background:#F4F6F4;padding:8px 12px;border-radius:6px}.info-label{font-size:10px;font-weight:700;color:#5A7A5A;text-transform:uppercase}.info-val{font-size:13px;font-weight:600;margin-top:2px}th{background:#1B3A1B;color:#fff;padding:8px;text-align:left;font-size:12px}.footer{margin-top:20px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:10px}@media print{body{padding:10px}}</style></head>
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pedido ${pedido.numero}</title>
+  <style>body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#1A2B1A}h1{color:#2E7D32;border-bottom:3px solid #4CAF50;padding-bottom:8px}h2{color:#2E7D32;font-size:14px;margin:20px 0 8px;border-bottom:1px solid #ddd;padding-bottom:4px}table{width:100%;border-collapse:collapse;font-size:11px}.info-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px}.info-card{background:#F4F6F4;padding:8px 12px;border-radius:6px}.info-label{font-size:9px;font-weight:700;color:#5A7A5A;text-transform:uppercase}.info-val{font-size:12px;font-weight:600;margin-top:2px}th{background:#1B3A1B;color:#fff;padding:6px 8px;text-align:left;font-size:10px}td{padding:5px 8px;border-bottom:1px solid #eee}.total-row{background:#E8F5E9;font-weight:700}.fob-badge{background:#FBE9E7;color:#E64A19;padding:2px 8px;border-radius:4px;font-weight:700}.footer{margin-top:20px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:10px}@media print{body{padding:10px}}</style></head>
   <body>
-  <h1>📋 Histórico do Pedido ${pedido.numero}</h1>
+  <h1>📋 Pedido de Compra ${pedido.numero}</h1>
   <div class="info-grid">
     <div class="info-card"><div class="info-label">Fornecedor</div><div class="info-val">${forn?.nome||pedido.fornecedor||"—"}</div></div>
     <div class="info-card"><div class="info-label">Obra</div><div class="info-val">${obra?obra.code+" — "+obra.name:"—"}</div></div>
     <div class="info-card"><div class="info-label">Almoxarife</div><div class="info-val">${alm?.name||"—"}</div></div>
     <div class="info-card"><div class="info-label">Comprador</div><div class="info-val">${comp?.name||"—"}</div></div>
-    <div class="info-card"><div class="info-label">Valor Total</div><div class="info-val">${pedido.valor?"R$ "+pedido.valor:"—"}</div></div>
     <div class="info-card"><div class="info-label">Prev. Entrega</div><div class="info-val">${fmtD(pedido.previsaoEntrega)}</div></div>
     <div class="info-card"><div class="info-label">Status</div><div class="info-val">${STATUS_LABELS[pedido.status]||pedido.status}</div></div>
-    <div class="info-card"><div class="info-label">Criado em</div><div class="info-val">${fmtDT(pedido.createdAt)} por ${pedido.createdBy||"—"}</div></div>
+    <div class="info-card"><div class="info-label">Cond. Pagamento</div><div class="info-val">${pedido.condPagamento||"—"}</div></div>
+    <div class="info-card"><div class="info-label">Vencimentos</div><div class="info-val">${(pedido.datasVencimento||[]).join(", ")||"—"}</div></div>
+    <div class="info-card"><div class="info-label">Tipo Frete</div><div class="info-val">${pedido.tipoFrete?`<span class="fob-badge">${pedido.tipoFrete}</span>`:"—"} — R$ ${pedido.valorFrete||"0,00"}</div></div>
   </div>
+  <h2>💰 Resumo Financeiro</h2>
+  <table><tr><th>Total Mercadorias</th><th>Desconto</th><th>Frete</th><th>TOTAL DO PEDIDO</th></tr>
+  <tr class="total-row"><td>R$ ${pedido.totalMercadorias||"—"}</td><td>R$ ${pedido.desconto||"0,00"}</td><td>R$ ${pedido.valorFrete||"0,00"} (${pedido.tipoFrete||"—"})</td><td style="font-size:14px">R$ ${pedido.valor||"—"}</td></tr></table>
+  ${pedido.localEntrega?`<p style="font-size:11px;color:#666">📍 Entrega: ${pedido.localEntrega}</p>`:""}
   ${(pedido.itens||[]).length>0?`<h2>📦 Insumos</h2><table><thead><tr><th>Descrição</th><th>Un.</th><th>Qtd.</th><th>Entregue</th><th>Status</th></tr></thead><tbody>${itensRows}</tbody></table>`:""}
   ${(pedido.messages||[]).length>0?`<h2>💬 Histórico de Mensagens</h2><table><thead><tr><th>Data/Hora</th><th>Usuário</th><th>Mensagem</th></tr></thead><tbody>${msgsRows}</tbody></table>`:""}
   <div class="footer">Exportado em ${fmtDT(new Date().toISOString())} — FACTEN Logística / Amorim Coutinho Engenharia</div>
@@ -771,6 +888,11 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
   function confirmarEntregas() {
     const pendentes = Object.entries(itensEdit);
     if(pendentes.length===0){toast("Nenhuma alteração para confirmar.");return;}
+    // FOB: require CT-e confirmation
+    if(pedido.tipoFrete==="FOB" && !pedido.cteConfirmado){
+      toast("⚠️ Frete FOB: confirme o recebimento do CT-e antes de registrar a entrega.");
+      return;
+    }
 
     // Apply edits
     let novos = [...itens];
@@ -1008,16 +1130,12 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
       </div>}
 
       {/* INFO GRID */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:14}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:10}}>
         {[
-          {l:"Obra",         v:obra?obra.code+" — "+obra.name:"—"},
-          {l:"Almoxarife",   v:alm?.name||"—",   c:G.blue},
-          {l:"Comprador",    v:comp?.name||"—",  c:G.green},
-          {l:"Fornecedor",   v:forn.nome||"—"},
-          {l:"Valor",        v:pedido.valor?"R$ "+pedido.valor:"—"},
-          {l:"Prev. Entrega",v:fmtD(pedido.previsaoEntrega)},
-          {l:"Tarefas",      v:myTarefas.filter(t=>t.status!=="resolvida").length+" abertas"},
-          {l:"Observação",   v:pedido.observacao||"—"},
+          {l:"Obra",       v:obra?obra.code+" — "+obra.name:"—"},
+          {l:"Almoxarife", v:alm?.name||"—", c:G.blue},
+          {l:"Comprador",  v:comp?.name||"—", c:G.green},
+          {l:"Fornecedor", v:forn.nome||"—"},
         ].map(row=>(
           <div key={row.l} style={{background:G.alt,borderRadius:8,padding:"7px 10px"}}>
             <div style={{fontSize:10,fontWeight:700,color:G.muted,textTransform:"uppercase",marginBottom:1}}>{row.l}</div>
@@ -1025,6 +1143,41 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
           </div>
         ))}
       </div>
+
+      {/* FINANCEIRO */}
+      <div style={{background:"#F0F5F0",borderRadius:10,padding:"10px 14px",marginBottom:10,border:"1px solid #DDE8DD"}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+          <div>
+            <div style={{fontSize:10,fontWeight:700,color:G.muted,textTransform:"uppercase",marginBottom:2}}>Total Mercadorias</div>
+            <div style={{fontSize:13,fontWeight:700}}>{pedido.totalMercadorias?"R$ "+pedido.totalMercadorias:"—"}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontWeight:700,color:G.muted,textTransform:"uppercase",marginBottom:2}}>
+              Frete {pedido.tipoFrete&&<span style={{background:pedido.tipoFrete==="FOB"?"#FBE9E7":"#E8F5E9",color:pedido.tipoFrete==="FOB"?G.orange:G.green,borderRadius:4,padding:"1px 6px",fontSize:9,fontWeight:800,marginLeft:4}}>{pedido.tipoFrete}</span>}
+            </div>
+            <div style={{fontSize:13,fontWeight:700,color:pedido.tipoFrete==="FOB"?G.orange:G.text}}>{pedido.valorFrete?"R$ "+pedido.valorFrete:"—"}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontWeight:700,color:G.muted,textTransform:"uppercase",marginBottom:2}}>TOTAL DO PEDIDO</div>
+            <div style={{fontSize:15,fontWeight:800,color:G.greenDark}}>{pedido.valor?"R$ "+pedido.valor:"—"}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontWeight:700,color:G.muted,textTransform:"uppercase",marginBottom:2}}>Pagamento</div>
+            <div style={{fontSize:12,fontWeight:600}}>{pedido.condPagamento||"—"}</div>
+            {(pedido.datasVencimento||[]).length>0&&<div style={{fontSize:10,color:G.muted,marginTop:2}}>Venc: {(pedido.datasVencimento||[]).map(fmtD).join(", ")}</div>}
+          </div>
+        </div>
+        {pedido.desconto&&pedido.desconto!=="0"&&pedido.desconto!=="0.00"&&<div style={{fontSize:11,color:G.muted,marginTop:6}}>Desconto: R$ {pedido.desconto}</div>}
+      </div>
+
+      {/* FOB ALERT */}
+      {pedido.tipoFrete==="FOB"&&<div style={{background:"#FBE9E7",border:"1px solid #FF704330",borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:12,color:"#E64A19",fontWeight:600}}>
+        ⚠️ Frete <strong>FOB</strong> — almoxarife deve confirmar recebimento do <strong>CT-e / Conhecimento de Frete</strong> na entrega.
+      </div>}
+      {pedido.localEntrega&&<div style={{background:G.alt,borderRadius:8,padding:"6px 12px",marginBottom:8,fontSize:11,color:G.muted}}>
+        📍 {pedido.localEntrega}
+      </div>}
+      {pedido.observacao&&<div style={{background:"#FFFDE7",border:"1px solid #F4C43040",borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:12}}>📝 {pedido.observacao}</div>}
 
       {/* TABS */}
       <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
@@ -1054,6 +1207,18 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
             </>}
           </div>
 
+          {/* FOB CT-e confirmation */}
+          {pedido.tipoFrete==="FOB"&&isAlmox&&!isCancelado&&<div style={{background:"#FBE9E7",border:"1px solid "+G.orange+"40",borderRadius:10,padding:"10px 14px",marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
+            <input type="checkbox" id="cte_check" checked={!!pedido.cteConfirmado}
+              onChange={e=>{onUpdateItens(pedido.id,itens,pedido.status,{cteConfirmado:e.target.checked});
+                if(e.target.checked){onAddMsg(pedido.id,{id:uid(),userId:cu.id,userName:cu.name,avatar:cu.avatar,text:"📋 CT-e / Conhecimento de Frete **confirmado** pelo almoxarife "+cu.name,type:"sistema",createdAt:nowTs()});}
+              }} style={{width:18,height:18,cursor:"pointer"}}/>
+            <label htmlFor="cte_check" style={{fontSize:13,fontWeight:700,color:"#E64A19",cursor:"pointer"}}>
+              ⚠️ Confirmar recebimento do <strong>CT-e / Conhecimento de Frete</strong> (obrigatório — Frete FOB)
+            </label>
+            {pedido.cteConfirmado&&<span style={{fontSize:12,color:G.green,fontWeight:700,marginLeft:"auto"}}>✅ CT-e confirmado</span>}
+          </div>}
+
           {/* progresso */}
           <div style={{background:G.alt,borderRadius:10,padding:"9px 14px",marginBottom:10,display:"flex",gap:14,alignItems:"center"}}>
             <div style={{flex:1}}>
@@ -1070,34 +1235,41 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
 
           {/* tabela */}
           <div style={{border:"1px solid "+G.border,borderRadius:10,overflow:"hidden"}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 60px 80px 80px 160px",background:G.nav,padding:"8px 12px",fontSize:10,fontWeight:700,color:"rgba(255,255,255,.7)",textTransform:"uppercase",gap:8}}>
-              <span>Insumo</span><span>Un.</span><span>Qtd.</span><span>Entregue</span><span>Status / Ação</span>
+            <div style={{display:"grid",gridTemplateColumns:"50px 1fr 50px 60px 70px 55px 55px 75px 80px 140px",background:G.nav,padding:"7px 10px",fontSize:9,fontWeight:700,color:"rgba(255,255,255,.7)",textTransform:"uppercase",gap:5}}>
+              <span>Cód.</span><span>Insumo</span><span>Un.</span><span>Qtd.</span><span>Vl.Unit.</span><span>%IPI</span><span>%Desc</span><span>Vl.Final</span><span>Entregue</span><span>Status / Ação</span>
             </div>
             {itFilt.map((it,idx)=>{
               const ist = ISTAT[it.status]||ISTAT.pendente;
               return(
-                <div key={it.id} style={{display:"grid",gridTemplateColumns:"1fr 60px 80px 80px 160px",padding:"9px 12px",borderTop:"1px solid "+G.border,background:idx%2===0?"#fff":G.alt,alignItems:"center",gap:8}}>
+                <div key={it.id} style={{display:"grid",gridTemplateColumns:"50px 1fr 50px 60px 70px 55px 55px 75px 80px 140px",padding:"8px 10px",borderTop:"1px solid "+G.border,background:idx%2===0?"#fff":G.alt,alignItems:"center",gap:5}}>
+                  <div style={{fontSize:10,color:G.muted,fontFamily:"monospace"}}>{it.codigo||"—"}</div>
                   <div>
                     <div style={{fontWeight:600,fontSize:12}}>{it.descricao}</div>
-                    {it.updatedBy&&<div style={{fontSize:10,color:G.light}}>Por {it.updatedBy} · {fmtD(it.updatedAt)}</div>}
+                    {it.norma&&<div style={{fontSize:9,color:G.light}}>Norma: {it.norma}</div>}
+                    {it.updatedBy&&<div style={{fontSize:9,color:G.light}}>Por {it.updatedBy} · {fmtD(it.updatedAt)}</div>}
+                    {it.dataPrevisao&&<div style={{fontSize:9,color:G.muted}}>Prev: {fmtD(it.dataPrevisao)}</div>}
                   </div>
-                  <div style={{fontSize:12,color:G.muted}}>{it.unidade}</div>
-                  <div style={{fontSize:13,fontWeight:700}}>{it.quantidade}</div>
+                  <div style={{fontSize:11,color:G.muted,textAlign:"center"}}>{it.unidade}</div>
+                  <div style={{fontSize:12,fontWeight:700,textAlign:"center"}}>{it.quantidade}</div>
+                  <div style={{fontSize:11,textAlign:"right"}}>R$ {it.valorUnitario||"—"}</div>
+                  <div style={{fontSize:11,textAlign:"center",color:it.percIpi&&it.percIpi!=="0"?G.orange:G.muted}}>{it.percIpi||"0"}%</div>
+                  <div style={{fontSize:11,textAlign:"center",color:it.percDesconto&&it.percDesconto!=="0"?G.blue:G.muted}}>{it.percDesconto||"0"}%</div>
+                  <div style={{fontSize:12,fontWeight:700,textAlign:"right",color:G.greenDark}}>R$ {it.valorFinal||it.valorUnitario||"—"}</div>
                   <div>
                     {isAlmox&&!isCancelado
                       ?<input type="number" min="0" max={it.quantidade}
                           value={itensEdit[it.id]!==undefined?itensEdit[it.id]:it.qtdEntregue||0}
                           onChange={e=>setQtd(it.id,e.target.value)}
-                          style={{...IB,width:68,padding:"4px 8px",fontSize:13,textAlign:"center",
+                          style={{...IB,width:68,padding:"4px 8px",fontSize:12,textAlign:"center",
                             borderColor:itensEdit[it.id]!==undefined?G.purple:"#DDE8DD",
                             background:itensEdit[it.id]!==undefined?"#F3E5F5":"#fff"}}/>
-                      :<span style={{fontSize:13}}>{it.qtdEntregue||0}</span>}
+                      :<span style={{fontSize:12}}>{it.qtdEntregue||0}</span>}
                   </div>
-                  <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
-                    <Chip color={ist.color} bg={ist.bg}>{ist.icon} {ist.label}</Chip>
-                    {isAlmox&&!isCancelado&&it.status!=="entregue"&&<button onClick={()=>setItensEdit(prev=>({...prev,[it.id]:it.quantidade}))} style={{padding:"2px 7px",borderRadius:5,border:"none",cursor:"pointer",background:G.green+"22",color:G.greenDark,fontSize:11,fontWeight:700}} title="Marcar como entregue (aguarda confirmação)">✅</button>}
-                    {isAlmox&&it.status==="entregue"&&<button onClick={()=>setItensEdit(prev=>({...prev,[it.id]:0}))} style={{padding:"2px 7px",borderRadius:5,border:"none",cursor:"pointer",background:G.gold+"22",color:G.goldDark,fontSize:11,fontWeight:700}} title="Reverter (aguarda confirmação)">↩</button>}
-                    {itensEdit[it.id]!==undefined&&<span style={{fontSize:9,color:G.purple,fontWeight:700}}>•pendente</span>}
+                  <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+                    <Chip color={ist.color} bg={ist.bg} style={{fontSize:10}}>{ist.icon} {ist.label}</Chip>
+                    {isAlmox&&!isCancelado&&it.status!=="entregue"&&<button onClick={()=>setItensEdit(prev=>({...prev,[it.id]:it.quantidade}))} style={{padding:"2px 6px",borderRadius:5,border:"none",cursor:"pointer",background:G.green+"22",color:G.greenDark,fontSize:11,fontWeight:700}}>✅</button>}
+                    {isAlmox&&it.status==="entregue"&&<button onClick={()=>setItensEdit(prev=>({...prev,[it.id]:0}))} style={{padding:"2px 6px",borderRadius:5,border:"none",cursor:"pointer",background:G.gold+"22",color:G.goldDark,fontSize:11,fontWeight:700}}>↩</button>}
+                    {itensEdit[it.id]!==undefined&&<span style={{fontSize:9,color:G.purple,fontWeight:700}}>•</span>}
                   </div>
                 </div>
               );
@@ -1965,7 +2137,7 @@ export default function App(){
   function deletePedido(id){setPedidos(p=>p.filter(x=>x.id!==id));setTarefas(ts=>ts.filter(t=>t.pedidoId!==id));}
   function cancelPedido(id){setPedidos(p=>p.map(x=>x.id===id?{...x,status:"cancelado"}:x));addMsg(id,{id:uid(),userId:cu.id,userName:cu.name,avatar:cu.avatar,text:"❌ Pedido cancelado pelo comprador "+cu.name,type:"sistema",createdAt:nowTs()});}
   const addMsg=(id,m)=>setPedidos(p=>p.map(x=>x.id===id?{...x,messages:[...(x.messages||[]),m]}:x));
-  const updateItens=(id,novos,ns)=>setPedidos(p=>p.map(x=>x.id===id?{...x,itens:novos,status:ns}:x));
+  const updateItens=(id,novos,ns,extra={})=>setPedidos(p=>p.map(x=>x.id===id?{...x,itens:novos,status:ns,...extra}:x));
 
   // notificações
   const notifs=[];

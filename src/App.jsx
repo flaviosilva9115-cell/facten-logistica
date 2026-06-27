@@ -249,18 +249,22 @@ function Btn({children,variant="primary",onClick,disabled,style:sx={},size="md",
   return <button title={title} onClick={onClick} disabled={disabled} style={{padding:pad,borderRadius:8,fontFamily:"Inter,sans-serif",fontSize:13,fontWeight:700,cursor:disabled?"not-allowed":"pointer",opacity:disabled?.55:1,transition:"opacity .15s,transform .1s",...vars[variant],...sx}}>{children}</button>;
 }
 function Modal({open,onClose,title,width=700,children,footer}){
+  const[fs,setFs]=useState(false);
   useEffect(()=>{
-    if(!open)return;
-    const h=e=>e.key==="Escape"&&onClose();
+    if(!open){setFs(false);return;}
+    const h=e=>{if(e.key==="Escape"){if(fs)setFs(false);else onClose();}};
     document.addEventListener("keydown",h);
     return()=>document.removeEventListener("keydown",h);
-  },[open,onClose]);
+  },[open,onClose,fs]);
   if(!open)return null;
-  return <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(20,40,20,.5)",backdropFilter:"blur(3px)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={e=>e.target===e.currentTarget&&onClose()}>
-    <div style={{background:G.surface,borderRadius:16,width:"100%",maxWidth:width,maxHeight:"94vh",display:"flex",flexDirection:"column",boxShadow:"0 28px 72px rgba(0,0,0,.28)",animation:"su .2s ease"}}>
+  return <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(20,40,20,.5)",backdropFilter:"blur(3px)",display:"flex",alignItems:fs?"stretch":"center",justifyContent:fs?"stretch":"center",padding:fs?0:16}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+    <div style={{background:G.surface,borderRadius:fs?0:16,width:"100%",maxWidth:fs?"100%":width,maxHeight:fs?"100vh":"94vh",display:"flex",flexDirection:"column",boxShadow:"0 28px 72px rgba(0,0,0,.28)",animation:"su .2s ease"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 22px",borderBottom:"1px solid "+G.border,flexShrink:0}}>
         <h2 style={{margin:0,fontSize:15,fontWeight:800,color:G.text}}>{title}</h2>
-        <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:G.muted,lineHeight:1,padding:4}}>✕</button>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>setFs(f=>!f)} title={fs?"Restaurar":"Maximizar"} style={{background:"none",border:"none",fontSize:16,cursor:"pointer",color:G.muted,padding:"2px 6px",lineHeight:1,borderRadius:4,border:"1px solid "+G.border}}>{fs?"⊡":"⊞"}</button>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:G.muted,lineHeight:1,padding:4}}>✕</button>
+        </div>
       </div>
       <div style={{overflowY:"auto",flex:1,padding:"18px 22px"}}>{children}</div>
       {footer&&<div style={{padding:"14px 22px",borderTop:"1px solid "+G.border,display:"flex",gap:8,justifyContent:"flex-end",flexShrink:0}}>{footer}</div>}
@@ -491,45 +495,45 @@ const RESPOSTAS_PRONTAS = [
 ];
 
 // ── EXPORTAR HISTÓRICO ────────────────────────────────────────────────────────
-function exportarHistorico(pedido, forn, obra, alm, comp) {
-  const msgs = (pedido.messages || []).map(m =>
-    `[${fmtDT(m.createdAt)}] ${m.userName}: ${m.text.replace(/<[^>]+>/g,"").replace(/\*\*/g,"")}`
-  ).join("\n");
-
-  const itens = (pedido.itens || []).map(it =>
-    `  - ${it.descricao} | ${it.quantidade} ${it.unidade} | Entregue: ${it.qtdEntregue||0} | ${it.status}`
-  ).join("\n");
-
-  const txt = [
-    "═══════════════════════════════════════════════════",
-    `HISTÓRICO DO PEDIDO ${pedido.numero}`,
-    "═══════════════════════════════════════════════════",
-    `Fornecedor : ${forn?.nome || pedido.fornecedor || "—"}`,
-    `Obra       : ${obra ? obra.code + " — " + obra.name : "—"}`,
-    `Almoxarife : ${alm?.name || "—"}`,
-    `Comprador  : ${comp?.name || "—"}`,
-    `Valor      : ${pedido.valor ? "R$ " + pedido.valor : "—"}`,
-    `Prev. Entr.: ${fmtD(pedido.previsaoEntrega)}`,
-    `Status     : ${STATUS_CFG[pedido.status]?.label || pedido.status}`,
-    `Criado em  : ${fmtDT(pedido.createdAt)} por ${pedido.createdBy}`,
-    "",
-    "── INSUMOS ─────────────────────────────────────────",
-    itens || "  Nenhum insumo",
-    "",
-    "── MENSAGENS / HISTÓRICO ────────────────────────────",
-    msgs || "  Nenhuma mensagem",
-    "",
-    `Exportado em: ${fmtDT(new Date().toISOString())}`,
-    "═══════════════════════════════════════════════════",
-  ].join("\n");
-
-  const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = `Pedido_${pedido.numero}_historico.txt`;
-  a.click();
-  URL.revokeObjectURL(url);
+async function exportarHistorico(pedido, forn, obra, alm, comp) {
+  // Gera PDF usando HTML + window.print (sem dependência externa)
+  const STATUS_LABELS = {pendente:"Pendente",entregue:"Entregue",parcial:"Parcial",cancelado:"Cancelado",aguardando:"Ag. Boleto"};
+  const itensRows = (pedido.itens||[]).map(it=>`
+    <tr>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee">${it.descricao}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">${it.unidade}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">${it.quantidade}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">${it.qtdEntregue||0}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center;color:${it.status==="entregue"?"#2E7D32":it.status==="parcial"?"#1565C0":"#E65100"}">${it.status}</td>
+    </tr>`).join("");
+  const msgsRows = (pedido.messages||[]).map(m=>`
+    <tr>
+      <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#666;white-space:nowrap">${fmtDT(m.createdAt)}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;color:#333;font-weight:600">${m.userName}</td>
+      <td style="padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:11px">${(m.text||"").replace(/<[^>]+>/g,"").replace(/\*\*/g,"")}</td>
+    </tr>`).join("");
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Histórico Pedido ${pedido.numero}</title>
+  <style>body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#1A2B1A}h1{color:#2E7D32;border-bottom:3px solid #4CAF50;padding-bottom:8px}h2{color:#2E7D32;font-size:14px;margin:20px 0 8px}table{width:100%;border-collapse:collapse}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}.info-card{background:#F4F6F4;padding:8px 12px;border-radius:6px}.info-label{font-size:10px;font-weight:700;color:#5A7A5A;text-transform:uppercase}.info-val{font-size:13px;font-weight:600;margin-top:2px}th{background:#1B3A1B;color:#fff;padding:8px;text-align:left;font-size:12px}.footer{margin-top:20px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:10px}@media print{body{padding:10px}}</style></head>
+  <body>
+  <h1>📋 Histórico do Pedido ${pedido.numero}</h1>
+  <div class="info-grid">
+    <div class="info-card"><div class="info-label">Fornecedor</div><div class="info-val">${forn?.nome||pedido.fornecedor||"—"}</div></div>
+    <div class="info-card"><div class="info-label">Obra</div><div class="info-val">${obra?obra.code+" — "+obra.name:"—"}</div></div>
+    <div class="info-card"><div class="info-label">Almoxarife</div><div class="info-val">${alm?.name||"—"}</div></div>
+    <div class="info-card"><div class="info-label">Comprador</div><div class="info-val">${comp?.name||"—"}</div></div>
+    <div class="info-card"><div class="info-label">Valor Total</div><div class="info-val">${pedido.valor?"R$ "+pedido.valor:"—"}</div></div>
+    <div class="info-card"><div class="info-label">Prev. Entrega</div><div class="info-val">${fmtD(pedido.previsaoEntrega)}</div></div>
+    <div class="info-card"><div class="info-label">Status</div><div class="info-val">${STATUS_LABELS[pedido.status]||pedido.status}</div></div>
+    <div class="info-card"><div class="info-label">Criado em</div><div class="info-val">${fmtDT(pedido.createdAt)} por ${pedido.createdBy||"—"}</div></div>
+  </div>
+  ${(pedido.itens||[]).length>0?`<h2>📦 Insumos</h2><table><thead><tr><th>Descrição</th><th>Un.</th><th>Qtd.</th><th>Entregue</th><th>Status</th></tr></thead><tbody>${itensRows}</tbody></table>`:""}
+  ${(pedido.messages||[]).length>0?`<h2>💬 Histórico de Mensagens</h2><table><thead><tr><th>Data/Hora</th><th>Usuário</th><th>Mensagem</th></tr></thead><tbody>${msgsRows}</tbody></table>`:""}
+  <div class="footer">Exportado em ${fmtDT(new Date().toISOString())} — FACTEN Logística / Amorim Coutinho Engenharia</div>
+  </body></html>`;
+  const w = window.open("","_blank","width=900,height=700");
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>w.print(),500);
 }
 
 // ── TAREFA BOLETO DETAIL ──────────────────────────────────────────────────────
@@ -556,7 +560,9 @@ function TarefaBoletoModal({open, onClose, tarefa, cu, onAnexo, onConcluir, toas
     <Modal open={open} onClose={onClose} title={"🧾 Boleto/NF — " + tarefa.title} width={560}
       footer={<>
         <Btn variant="secondary" onClick={onClose}>Fechar</Btn>
-        {anexos.length > 0 && <Btn onClick={() => { onConcluir(tarefa.id); onClose(); toast("✅ Boleto enviado! Tarefa concluída para o comprador."); }}>✅ Enviar & Concluir</Btn>}
+        {anexos.length > 0
+        ? <Btn onClick={() => { onConcluir(tarefa.id); onClose(); toast("✅ Boleto(s) enviados! Tarefa concluída."); }}>✅ Enviar & Concluir ({anexos.length} arquivo{anexos.length>1?"s":""})</Btn>
+        : <span style={{fontSize:12,color:G.red,fontWeight:600}}>⚠️ Anexe pelo menos 1 boleto para concluir</span>}
       </>}>
       <div style={{background:"#F3E5F5",border:"1px solid #9C27B050",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:13,color:"#6A1B9A"}}>
         🧾 Anexe o(s) boleto(s) e/ou nota fiscal para liberar o pagamento. Após enviar, a tarefa será concluída para o comprador.
@@ -593,8 +599,10 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
   const [aiLoad,setAiLoad]     = useState(false);
   const [aiSuggest,setAiSuggest] = useState("");
   const [showRespostas,setShowRespostas] = useState(false);
-  const [showBoletoModal,setShowBoletoModal] = useState(null); // tarefa de boleto
-  const [confirmAcao,setConfirmAcao] = useState(null); // "excluir"|"cancelar"
+  const [showBoletoModal,setShowBoletoModal] = useState(null);
+  const [confirmAcao,setConfirmAcao] = useState(null);
+  const [itensEdit,setItensEdit] = useState({}); // {id: qtd} — edições pendentes de confirmação
+  const [nfNumero,setNfNumero]   = useState(""); // número da NF para tarefa boleto
   const chatRef  = useRef(null);
   const fileRef  = useRef(null);
 
@@ -645,16 +653,53 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
   function setQtd(id, qtd) {
     const it = itens.find(i=>i.id===id); if(!it) return;
     const q  = Math.min(Math.max(0, Number(qtd)), it.quantidade);
-    marcarItem(id, q<=0?"pendente": q>=it.quantidade?"entregue":"parcial", q);
+    setItensEdit(prev=>({...prev,[id]:q}));
+  }
+
+  function confirmarEntregas() {
+    // Apply all pending itensEdit to actual state
+    const pendentes = Object.entries(itensEdit);
+    if(pendentes.length===0){toast("Nenhuma alteração para confirmar.");return;}
+    let novos = [...itens];
+    pendentes.forEach(([id,q])=>{
+      novos = novos.map(it=>it.id===id?{...it,qtdEntregue:q,status:q<=0?"pendente":q>=it.quantidade?"entregue":"parcial",updatedBy:cu.name,updatedAt:nowTs()}:it);
+    });
+    const ne = novos.filter(i=>i.status==="entregue").length;
+    const ns = novos.length>0?(ne===novos.length?"entregue":novos.every(i=>i.status==="pendente")?"pendente":"parcial"):pedido.status;
+    onUpdateItens(pedido.id, novos, ns);
+    const parciais = novos.filter(i=>i.status==="parcial"||i.status==="pendente");
+    if(ns==="parcial"&&pedido.status!=="parcial"){
+      const pendList = novos.filter(i=>i.status!=="entregue").map(i=>`${i.descricao} (${i.qtdEntregue}/${i.quantidade} ${i.unidade})`).join(", ");
+      onAddMsg(pedido.id,{id:uid(),userId:cu.id,userName:cu.name,avatar:cu.avatar,
+        text:`📦 **Entrega parcial** confirmada por ${cu.name}. Recebido: ${pendentes.length} item(ns) atualizado(s). Pendente: ${pendList}`,
+        type:"sistema",createdAt:nowTs()});
+      // Cria UMA única tarefa para o evento
+      const taskExists = tarefas.find(t=>t.pedidoId===pedido.id&&t.categoria==="acompanhamento"&&t.status!=="resolvida"&&t.title.includes("parcial"));
+      if(!taskExists){
+        const task={id:uid(),categoria:"acompanhamento",
+          title:`Entrega parcial — Pedido ${pedido.numero} (${forn.nome})`,
+          description:`Almoxarife ${cu.name} confirmou entrega parcial. Saldo pendente: ${pendList}`,
+          status:"aberta",pedidoId:pedido.id,obra:pedido.obra,
+          assignedTo:Number(pedido.comprador),due:pedido.previsaoEntrega||"",
+          anexos:[],messages:[],createdBy:cu.name,createdAt:nowTs()};
+        setTarefas(ts=>[task,...ts]);
+      }
+    }
+    if(ns==="entregue"&&pedido.status!=="entregue"){
+      onAddMsg(pedido.id,{id:uid(),userId:cu.id,userName:cu.name,avatar:cu.avatar,
+        text:`✅ **Entrega total** confirmada por ${cu.name} em ${fmtDT(nowTs())}`,
+        type:"sistema",createdAt:nowTs()});
+    }
+    setItensEdit({});
+    toast(ns==="entregue"?"✅ Entrega total confirmada!":ns==="parcial"?"📦 Entrega parcial confirmada!":"↩ Itens revertidos.");
   }
 
   function marcarTodosEntregues() {
-    const novos = itens.map(it=>({...it, status:"entregue", qtdEntregue:it.quantidade, updatedBy:cu.name, updatedAt:nowTs()}));
-    onUpdateItens(pedido.id, novos, "entregue");
-    onAddMsg(pedido.id, {id:uid(), userId:cu.id, userName:cu.name, avatar:cu.avatar,
-      text:`✅ **Entrega total** — todos os ${nTot} itens confirmados por ${cu.name}`,
-      type:"sistema", createdAt:nowTs()});
-    toast("✅ Entrega total confirmada!");
+    // Set all items as entregue in pending state, then confirm
+    const edits = {};
+    itens.forEach(it=>{ edits[it.id]=it.quantidade; });
+    setItensEdit(edits);
+    toast("✅ Todos marcados — clique em Confirmar para salvar.");
   }
 
   // ── CHAT ───────────────────────────────────────────────────────────────────
@@ -697,22 +742,24 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
     setAiLoad(false);
   }
 
-  function criarTarefaBoleto() {
+  function criarTarefaBoleto(nfNum) {
+    if(!nfNum||!nfNum.trim()){toast("Informe o número da NF antes de criar a tarefa.");return;}
     const exists = tarefas.find(t=>t.pedidoId===pedido.id&&t.categoria==="boleto"&&t.status!=="resolvida");
     if(exists) { toast("Já existe tarefa de boleto aberta para este pedido."); return; }
     const nova = {
       id:uid(), categoria:"boleto",
-      title:`Boleto/NF pendente — Pedido ${pedido.numero} (${forn.nome})`,
-      description:`Almoxarife ${cu.name} informou que o material chegou sem boleto ou nota fiscal.`,
+      title:`Boleto/NF pendente — NF ${nfNum.trim()} — Pedido ${pedido.numero} (${forn.nome})`,
+      description:`Almoxarife ${cu.name} informou que a NF ${nfNum.trim()} chegou sem boleto. Pedido ${pedido.numero}, Fornecedor: ${forn.nome}.`,
       status:"aberta", pedidoId:pedido.id, obra:pedido.obra,
       assignedTo:Number(pedido.comprador), due:pedido.previsaoEntrega||"",
       anexos:[], messages:[], createdBy:cu.name, createdAt:nowTs()
     };
     setTarefas(ts=>[nova,...ts]);
     onAddMsg(pedido.id, {id:uid(), userId:cu.id, userName:cu.name, avatar:cu.avatar,
-      text:"🧾 Tarefa de **Boleto/NF** criada — comprador será notificado.",
+      text:`🧾 Material recebido sem boleto. **NF ${nfNum.trim()}** — Tarefa criada para o comprador.`,
       type:"sistema", createdAt:nowTs()});
-    toast("🧾 Tarefa de boleto criada para o comprador!");
+    setNfNumero("");
+    toast("🧾 Tarefa de boleto/NF criada!");
   }
 
   function handleFile(e) {
@@ -830,7 +877,11 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
             <div style={{flex:1}}/>
             {isAlmox&&!isCancelado&&<>
               <Btn size="sm" onClick={marcarTodosEntregues}>✅ Todos entregues</Btn>
-              <button onClick={criarTarefaBoleto} style={{padding:"5px 12px",borderRadius:8,border:"1.5px solid "+G.purple,background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:G.purple}}>🧾 Sem Boleto/NF</button>
+              {Object.keys(itensEdit).length>0&&<button onClick={confirmarEntregas} style={{padding:"5px 14px",borderRadius:8,border:"none",cursor:"pointer",background:G.purple,color:"#fff",fontSize:11,fontWeight:700,animation:"pulse 1s infinite"}}>💾 Confirmar ({Object.keys(itensEdit).length})</button>}
+              <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                <input value={nfNumero} onChange={e=>setNfNumero(e.target.value)} placeholder="Nº da NF" style={{width:90,padding:"5px 8px",borderRadius:8,border:"1.5px solid "+G.purple,fontSize:11,outline:"none",fontFamily:"Inter,sans-serif"}}/>
+                <button onClick={()=>criarTarefaBoleto(nfNumero)} style={{padding:"5px 12px",borderRadius:8,border:"1.5px solid "+G.purple,background:nfNumero.trim()?"#F3E5F5":"none",cursor:"pointer",fontSize:11,fontWeight:700,color:G.purple}}>🧾 Sem Boleto/NF</button>
+              </div>
             </>}
           </div>
 
@@ -865,13 +916,19 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
                   <div style={{fontSize:13,fontWeight:700}}>{it.quantidade}</div>
                   <div>
                     {isAlmox&&!isCancelado
-                      ?<input type="number" min="0" max={it.quantidade} value={it.qtdEntregue||0} onChange={e=>setQtd(it.id,e.target.value)} style={{...IB,width:68,padding:"4px 8px",fontSize:13,textAlign:"center"}}/>
+                      ?<input type="number" min="0" max={it.quantidade}
+                          value={itensEdit[it.id]!==undefined?itensEdit[it.id]:it.qtdEntregue||0}
+                          onChange={e=>setQtd(it.id,e.target.value)}
+                          style={{...IB,width:68,padding:"4px 8px",fontSize:13,textAlign:"center",
+                            borderColor:itensEdit[it.id]!==undefined?G.purple:"#DDE8DD",
+                            background:itensEdit[it.id]!==undefined?"#F3E5F5":"#fff"}}/>
                       :<span style={{fontSize:13}}>{it.qtdEntregue||0}</span>}
                   </div>
                   <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
                     <Chip color={ist.color} bg={ist.bg}>{ist.icon} {ist.label}</Chip>
-                    {isAlmox&&!isCancelado&&it.status!=="entregue"&&<button onClick={()=>marcarItem(it.id,"entregue",it.quantidade)} style={{padding:"2px 7px",borderRadius:5,border:"none",cursor:"pointer",background:G.green+"22",color:G.greenDark,fontSize:11,fontWeight:700}}>✅</button>}
-                    {isAlmox&&it.status==="entregue"&&<button onClick={()=>marcarItem(it.id,"pendente",0)} style={{padding:"2px 7px",borderRadius:5,border:"none",cursor:"pointer",background:G.gold+"22",color:G.goldDark,fontSize:11,fontWeight:700}}>↩</button>}
+                    {isAlmox&&!isCancelado&&it.status!=="entregue"&&<button onClick={()=>setItensEdit(prev=>({...prev,[it.id]:it.quantidade}))} style={{padding:"2px 7px",borderRadius:5,border:"none",cursor:"pointer",background:G.green+"22",color:G.greenDark,fontSize:11,fontWeight:700}} title="Marcar como entregue (aguarda confirmação)">✅</button>}
+                    {isAlmox&&it.status==="entregue"&&<button onClick={()=>setItensEdit(prev=>({...prev,[it.id]:0}))} style={{padding:"2px 7px",borderRadius:5,border:"none",cursor:"pointer",background:G.gold+"22",color:G.goldDark,fontSize:11,fontWeight:700}} title="Reverter (aguarda confirmação)">↩</button>}
+                    {itensEdit[it.id]!==undefined&&<span style={{fontSize:9,color:G.purple,fontWeight:700}}>•pendente</span>}
                   </div>
                 </div>
               );
@@ -1500,6 +1557,7 @@ export default function App(){
   const [detailP, setDetailP] = useState(null);
   const [showCfg, setShowCfg] = useState(false);
   const [notifOpen,setNotifOpen] = useState(false);
+  const [notifsLidas,setNotifsLidas] = useState(()=>ld("fl5_notifs_lidas",[]));
 
   useEffect(()=>sv(K.users,        users),        [users]);
   useEffect(()=>sv(K.obras,        obras),        [obras]);
@@ -1509,6 +1567,7 @@ export default function App(){
   useEffect(()=>sv(K.events,       events),       [events]);
   useEffect(()=>sv(K.atas,         atas),         [atas]);
   useEffect(()=>sv(K.li,           loggedIn),     [loggedIn]);
+  useEffect(()=>sv("fl5_notifs_lidas", notifsLidas), [notifsLidas]);
   useEffect(()=>sv(K.cu,           cu),           [cu]);
 
   const toast = m => setToastMsg(m);
@@ -1621,7 +1680,7 @@ export default function App(){
 
   return(
     <div style={{display:"flex",minHeight:"100vh",fontFamily:"Inter,sans-serif",color:G.text,background:G.bg}}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');@keyframes su{from{transform:translateY(12px);opacity:0}to{transform:translateY(0);opacity:1}}*{box-sizing:border-box}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#DDE8DD;border-radius:4px}button:active{transform:scale(.97)}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');@keyframes su{from{transform:translateY(12px);opacity:0}to{transform:translateY(0);opacity:1}}@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}*{box-sizing:border-box}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#DDE8DD;border-radius:4px}button:active{transform:scale(.97)}`}</style>
 
       {/* SIDEBAR */}
       <div style={{width:210,flexShrink:0,background:G.nav,display:"flex",flexDirection:"column",height:"100vh",position:"sticky",top:0}}>
@@ -1668,15 +1727,33 @@ export default function App(){
           {/* Notificações */}
           <div style={{position:"relative"}}>
             <button onClick={()=>setNotifOpen(n=>!n)} style={{background:"none",border:"none",cursor:"pointer",fontSize:19,padding:"4px 8px",position:"relative"}}>
-              🔔{notifs.length>0&&<span style={{position:"absolute",top:0,right:0,background:G.red,color:"#fff",borderRadius:20,fontSize:8,fontWeight:800,padding:"1px 4px"}}>{notifs.length}</span>}
+              🔔{notifs.filter(n=>!notifsLidas.includes(n.id)).length>0&&<span style={{position:"absolute",top:0,right:0,background:G.red,color:"#fff",borderRadius:20,fontSize:8,fontWeight:800,padding:"1px 4px"}}>{notifs.filter(n=>!notifsLidas.includes(n.id)).length}</span>}
             </button>
-            {notifOpen&&<div style={{position:"absolute",right:0,top:42,background:"#fff",borderRadius:12,boxShadow:"0 8px 32px rgba(0,0,0,.18)",width:310,zIndex:200,border:"1px solid "+G.border}}>
-              <div style={{padding:"11px 14px",borderBottom:"1px solid "+G.border,fontWeight:700,fontSize:13,display:"flex",justifyContent:"space-between"}}>Notificações<button onClick={()=>setNotifOpen(false)} style={{background:"none",border:"none",cursor:"pointer",color:G.muted,fontSize:16}}>✕</button></div>
-              {notifs.length===0&&<div style={{padding:"20px",textAlign:"center",color:G.light,fontSize:13}}>Tudo em dia!</div>}
-              {notifs.map(n=><div key={n.id} onClick={()=>{if(n.pedidoId){const p=pedidos.find(x=>x.id===n.pedidoId);if(p){setDetailP(p);setPage("pedidos");}}setNotifOpen(false);}} style={{display:"flex",gap:10,padding:"9px 14px",borderBottom:"1px solid "+G.border,cursor:"pointer"}}>
-                <span style={{fontSize:18}}>{n.icon}</span>
-                <div style={{fontSize:12,color:G.text,lineHeight:1.5}}>{n.text}</div>
-              </div>)}
+            {notifOpen&&<div style={{position:"absolute",right:0,top:42,background:"#fff",borderRadius:12,boxShadow:"0 8px 32px rgba(0,0,0,.18)",width:340,zIndex:200,border:"1px solid "+G.border,maxHeight:420,display:"flex",flexDirection:"column"}}>
+              <div style={{padding:"11px 16px",borderBottom:"1px solid "+G.border,fontWeight:700,fontSize:13,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+                <span>Notificações {notifs.filter(n=>!notifsLidas.includes(n.id)).length>0&&<span style={{background:G.red,color:"#fff",borderRadius:20,fontSize:9,fontWeight:800,padding:"1px 6px",marginLeft:4}}>{notifs.filter(n=>!notifsLidas.includes(n.id)).length} novas</span>}</span>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  {notifsLidas.length<notifs.length&&<button onClick={()=>setNotifsLidas(notifs.map(n=>n.id))} style={{fontSize:10,color:G.muted,background:"none",border:"none",cursor:"pointer"}}>Marcar todas lidas</button>}
+                  <button onClick={()=>setNotifOpen(false)} style={{background:"none",border:"none",cursor:"pointer",color:G.muted,fontSize:16}}>✕</button>
+                </div>
+              </div>
+              <div style={{overflowY:"auto",flex:1}}>
+                {notifs.length===0&&<div style={{padding:"24px",textAlign:"center",color:G.light,fontSize:13}}>Tudo em dia! ✅</div>}
+                {[...notifs].sort((a,b)=>{const aL=notifsLidas.includes(a.id),bL=notifsLidas.includes(b.id);return aL===bL?0:aL?1:-1;}).map(n=>{
+                  const lida=notifsLidas.includes(n.id);
+                  return<div key={n.id} onClick={()=>{
+                    setNotifsLidas(prev=>[...new Set([...prev,n.id])]);
+                    if(n.pedidoId){const p=pedidos.find(x=>x.id===n.pedidoId);if(p){setDetailP(p);setPage("pedidos");}}
+                    setNotifOpen(false);
+                  }} style={{display:"flex",gap:10,padding:"10px 16px",borderBottom:"1px solid "+G.border,cursor:"pointer",background:lida?"#fafafa":"#FFF8E1",transition:"background .2s"}}>
+                    <span style={{fontSize:18,opacity:lida?.5:1}}>{n.icon}</span>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:12,color:lida?G.muted:G.text,lineHeight:1.5,fontWeight:lida?400:600}}>{n.text}</div>
+                      {!lida&&<div style={{fontSize:10,color:G.gold,fontWeight:700,marginTop:2}}>● Não lida</div>}
+                    </div>
+                  </div>;
+                })}
+              </div>
             </div>}
           </div>
         </div>

@@ -768,60 +768,115 @@ async function exportarHistorico(pedido, forn, obra, alm, comp) {
 // ── TAREFA BOLETO DETAIL ──────────────────────────────────────────────────────
 function TarefaBoletoModal({open, onClose, tarefa, cu, onAnexo, onConcluir, toast}) {
   const fileRef = useRef(null);
-  const [obs, setObs] = useState("");
+  const [obs, setObs]           = useState("");
+  const [pendentes, setPendentes] = useState([]); // arquivos selecionados aguardando confirmação
+  const [confirmando, setConfirmando] = useState(false); // tela de confirmação
   if(!tarefa) return null;
   const anexos = tarefa.anexos || [];
 
   function handleFile(e) {
     const files = Array.from(e.target.files);
+    const readers = [];
     files.forEach(file => {
-      const r = new FileReader();
-      r.onload = ev => {
-        onAnexo(tarefa.id, { id: uid(), name: file.name, data: ev.target.result, by: cu.name, at: nowTs() });
-      };
-      r.readAsDataURL(file);
+      readers.push(new Promise(res => {
+        const r = new FileReader();
+        r.onload = ev => res({id:uid(), name:file.name, data:ev.target.result, by:cu.name, at:nowTs()});
+        r.readAsDataURL(file);
+      }));
+    });
+    Promise.all(readers).then(novos => {
+      setPendentes(prev=>[...prev,...novos]);
+      setConfirmando(true); // abre tela de confirmação
     });
     e.target.value = "";
-    toast("📎 Arquivo(s) anexado(s)!");
   }
 
+  function removerPendente(id){ setPendentes(p=>p.filter(x=>x.id!==id)); }
+
+  function confirmarEnvio(){
+    pendentes.forEach(a => onAnexo(tarefa.id, a));
+    setPendentes([]);
+    setConfirmando(false);
+    toast("📎 "+pendentes.length+" arquivo(s) adicionado(s)!");
+  }
+
+  function cancelarSelecao(){ setPendentes([]); setConfirmando(false); }
+
   return (
-    <Modal open={open} onClose={onClose} title={"🧾 Boleto/NF — " + tarefa.title} width={560}
-      footer={<>
+    <Modal open={open} onClose={()=>{cancelarSelecao();onClose();}} title={"🧾 Boleto/NF — " + tarefa.title} width={580}
+      footer={confirmando ? <>
+        <Btn variant="secondary" onClick={cancelarSelecao}>← Cancelar Seleção</Btn>
+        <Btn onClick={confirmarEnvio} style={{background:G.purple}}>
+          ✅ Confirmar e Adicionar {pendentes.length} arquivo{pendentes.length>1?"s":""}
+        </Btn>
+      </> : <>
         <Btn variant="secondary" onClick={onClose}>Fechar</Btn>
         {anexos.length > 0
-          ? <Btn onClick={() => { onConcluir(tarefa.id); onClose(); }}
-              style={{background:G.purple}}>
+          ? <Btn onClick={() => { onConcluir(tarefa.id); onClose(); }} style={{background:G.purple}}>
               📤 Enviar ao Almoxarife ({anexos.length} arquivo{anexos.length>1?"s":""})
             </Btn>
-          : <span style={{fontSize:12,color:G.red,fontWeight:600}}>⚠️ Anexe pelo menos 1 boleto/NF para enviar</span>}
+          : <span style={{fontSize:12,color:G.red,fontWeight:600}}>⚠️ Anexe pelo menos 1 boleto/NF</span>}
       </>}>
-      <div style={{background:"#F3E5F5",border:"1px solid #9C27B050",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#6A1B9A"}}>
-        <div style={{fontWeight:700,marginBottom:4}}>🔄 Ciclo do Boleto/NF:</div>
-        <div>1️⃣ <strong>Você (comprador)</strong> — Anexa o(s) boleto(s)/NF e clica em "Enviar ao Almoxarife"</div>
-        <div>2️⃣ <strong>Almoxarife</strong> — Recebe, baixa o boleto e confirma o recebimento</div>
-        <div>3️⃣ Ciclo encerrado ✅</div>
-      </div>
-      <Fld label="Observação (opcional)">
-        <Txa rows={2} value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ex: NF 12345, boleto com vencimento 10/07..."/>
-      </Fld>
-      {/* anexos já enviados */}
-      {anexos.length > 0 && (
-        <div style={{marginBottom:12}}>
-          <div style={{fontSize:11,fontWeight:700,color:G.muted,textTransform:"uppercase",marginBottom:6}}>Arquivos Anexados ({anexos.length})</div>
-          {anexos.map(a => (
-            <div key={a.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:G.alt,borderRadius:8,marginBottom:4}}>
-              <span style={{fontSize:16}}>📎</span>
-              <a href={a.data} download={a.name} style={{fontSize:13,color:G.green,textDecoration:"none",fontWeight:600,flex:1}}>{a.name}</a>
-              <span style={{fontSize:10,color:G.light}}>por {a.by}</span>
+
+      {/* TELA DE CONFIRMAÇÃO */}
+      {confirmando ? (
+        <div>
+          <div style={{background:"#FFF8E1",border:"1px solid #F4C430",borderRadius:10,padding:"12px 16px",marginBottom:16}}>
+            <div style={{fontWeight:800,fontSize:14,color:"#5D4037",marginBottom:6}}>
+              📋 Confirme os arquivos selecionados
             </div>
-          ))}
+            <div style={{fontSize:12,color:"#6D4C41"}}>
+              Revise os arquivos abaixo antes de adicionar. Você pode remover algum se necessário.
+            </div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+            {pendentes.map(a=>(
+              <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:G.alt,borderRadius:10,border:"1px solid "+G.border}}>
+                <span style={{fontSize:20}}>📎</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:600}}>{a.name}</div>
+                  <div style={{fontSize:10,color:G.muted}}>Selecionado por {a.by}</div>
+                </div>
+                <button onClick={()=>removerPendente(a.id)} style={{background:"none",border:"1.5px solid "+G.red,borderRadius:6,cursor:"pointer",color:G.red,fontSize:11,fontWeight:700,padding:"3px 8px"}}>✕ Remover</button>
+              </div>
+            ))}
+          </div>
+          {pendentes.length===0&&<div style={{textAlign:"center",color:G.light,padding:"20px 0",fontSize:13}}>Nenhum arquivo. Volte e selecione novamente.</div>}
+        </div>
+      ) : (
+        <div>
+          <div style={{background:"#F3E5F5",border:"1px solid #9C27B050",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#6A1B9A"}}>
+            <div style={{fontWeight:700,marginBottom:4}}>🔄 Ciclo do Boleto/NF:</div>
+            <div>1️⃣ <strong>Você</strong> — Seleciona e confirma os arquivos</div>
+            <div>2️⃣ <strong>Almoxarife</strong> — Baixa e confirma o recebimento</div>
+            <div>3️⃣ Ciclo encerrado ✅</div>
+          </div>
+          <Fld label="Observação (opcional)">
+            <Txa rows={2} value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ex: NF 12345, boleto com vencimento 10/07..."/>
+          </Fld>
+          {anexos.length > 0 && (
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,fontWeight:700,color:G.muted,textTransform:"uppercase",marginBottom:6}}>
+                Já Enviados ({anexos.length})
+              </div>
+              {anexos.map(a => (
+                <div key={a.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:"#E8F5E9",borderRadius:8,marginBottom:4,border:"1px solid #A5D6A7"}}>
+                  <span style={{fontSize:16}}>✅</span>
+                  <a href={a.data} download={a.name} style={{fontSize:12,color:G.greenDark,textDecoration:"none",fontWeight:600,flex:1}}>⬇ {a.name}</a>
+                  <span style={{fontSize:10,color:G.muted}}>por {a.by}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <button onClick={() => fileRef.current?.click()} style={{width:"100%",padding:"14px",borderRadius:10,border:"2px dashed "+G.purple,background:"#F9F0FF",cursor:"pointer",fontSize:13,fontWeight:700,color:G.purple}}>
+            📎 Selecionar Boleto(s) / Nota(s) Fiscal
+            <div style={{fontSize:10,fontWeight:400,marginTop:4,color:"#9C27B080"}}>
+              Você poderá revisar antes de confirmar • PDF, JPG, PNG
+            </div>
+          </button>
+          <input ref={fileRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png" style={{display:"none"}} onChange={handleFile}/>
         </div>
       )}
-      <button onClick={() => fileRef.current?.click()} style={{width:"100%",padding:"12px",borderRadius:10,border:"2px dashed "+G.purple,background:"#F3E5F5",cursor:"pointer",fontSize:13,fontWeight:700,color:G.purple}}>
-        + Anexar Boleto / Nota Fiscal
-      </button>
-      <input ref={fileRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png" style={{display:"none"}} onChange={handleFile}/>
     </Modal>
   );
 }
@@ -2052,6 +2107,194 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
 }
 
 // ── ROOT APP ──────────────────────────────────────────────────────────────────
+// ── PAINEL DE ACOMPANHAMENTO ──────────────────────────────────────────────────
+function PainelAcompanhamento({open, onClose, pedidos, tarefas, users, obras, onOpenPedido}) {
+  const [filtro, setFiltro] = useState("todos");
+  const hoje = new Date();
+  hoje.setHours(0,0,0,0);
+  const em7dias = new Date(hoje); em7dias.setDate(hoje.getDate()+7);
+
+  // Coleta todos os eventos de entrega de todos os pedidos
+  const eventos = [];
+  pedidos.filter(p=>!["cancelado"].includes(p.status)).forEach(p=>{
+    const obra = obras.find(o=>String(o.id)===String(p.obra));
+    const comp = users.find(u=>String(u.id)===String(p.comprador));
+    const itens = p.itens||[];
+
+    // Agrupar itens por data de previsão → múltiplas entregas
+    const porData = {};
+    itens.forEach(it=>{
+      const dt = it.dataPrevisao||p.previsaoEntrega||"";
+      if(!porData[dt]) porData[dt]=[];
+      porData[dt].push(it);
+    });
+
+    // Se só tem uma data, é entrega única
+    const datas = Object.keys(porData).filter(Boolean).sort();
+    datas.forEach((dt, idx)=>{
+      const itensDaData = porData[dt];
+      const entregues   = itensDaData.filter(i=>i.status==="entregue").length;
+      const total       = itensDaData.length;
+      const dtObj       = new Date(dt+"T00:00:00");
+      const diffDias    = Math.round((dtObj-hoje)/(1000*60*60*24));
+      let situacao;
+      if(entregues===total)              situacao="entregue";
+      else if(diffDias<0)                situacao="vencido";
+      else if(diffDias<=7)               situacao="urgente";
+      else                               situacao="futuro";
+
+      eventos.push({
+        id:        p.id+"_"+dt,
+        pedidoId:  p.id,
+        pedido:    p,
+        obra,
+        comp,
+        data:      dt,
+        dtObj,
+        diffDias,
+        situacao,
+        label:     datas.length>1 ? (idx===0?"1ª Entrega":idx===1?"2ª Entrega":idx===2?"3ª Entrega":(idx+1)+"ª Entrega") : "Entrega",
+        itens:     itensDaData,
+        entregues, total,
+        pct:       total>0?Math.round((entregues/total)*100):0,
+      });
+    });
+
+    // Se pedido não tem itens com data, usa previsaoEntrega do pedido
+    if(datas.length===0 && p.previsaoEntrega){
+      const dt    = p.previsaoEntrega;
+      const dtObj = new Date(dt+"T00:00:00");
+      const diffDias = Math.round((dtObj-hoje)/(1000*60*60*24));
+      let situacao = p.status==="entregue"?"entregue":diffDias<0?"vencido":diffDias<=7?"urgente":"futuro";
+      eventos.push({
+        id:p.id+"_geral", pedidoId:p.id, pedido:p, obra, comp,
+        data:dt, dtObj, diffDias, situacao, label:"Entrega",
+        itens:[], entregues:0, total:0, pct:p.status==="entregue"?100:0,
+      });
+    }
+  });
+
+  eventos.sort((a,b)=>a.dtObj-b.dtObj);
+
+  const filtrados = eventos.filter(e=>{
+    if(filtro==="vencidos") return e.situacao==="vencido";
+    if(filtro==="urgentes") return e.situacao==="urgente";
+    if(filtro==="futuros")  return e.situacao==="futuro";
+    if(filtro==="entregues")return e.situacao==="entregue";
+    return true;
+  });
+
+  const counts = {
+    vencidos:  eventos.filter(e=>e.situacao==="vencido").length,
+    urgentes:  eventos.filter(e=>e.situacao==="urgente").length,
+    futuros:   eventos.filter(e=>e.situacao==="futuro").length,
+    entregues: eventos.filter(e=>e.situacao==="entregue").length,
+  };
+
+  const SITUACAO = {
+    vencido:  {label:"Vencido",   color:G.red,    bg:"#FFEBEE", icon:"🔴"},
+    urgente:  {label:"≤ 7 dias",  color:G.orange, bg:"#FBE9E7", icon:"⚠️"},
+    futuro:   {label:"Futuro",    color:G.blue,   bg:"#E3F2FD", icon:"📅"},
+    entregue: {label:"Entregue",  color:G.green,  bg:"#E8F5E9", icon:"✅"},
+  };
+
+  const filterBtn=(k,l,n,ic)=>(
+    <button onClick={()=>setFiltro(k)} style={{
+      padding:"8px 14px",borderRadius:10,border:"2px solid "+(filtro===k?SITUACAO[k]?.color||G.green:G.border),
+      background:filtro===k?(SITUACAO[k]?.bg||"#E8F5E9"):"#fff",
+      cursor:"pointer",fontSize:12,fontWeight:700,
+      color:filtro===k?(SITUACAO[k]?.color||G.greenDark):G.muted,
+      display:"flex",flexDirection:"column",alignItems:"center",gap:2,minWidth:80
+    }}>
+      <span style={{fontSize:18}}>{ic}</span>
+      <span style={{fontSize:16,fontWeight:800}}>{n}</span>
+      <span style={{fontSize:10,textTransform:"uppercase",letterSpacing:"0.05em"}}>{l}</span>
+    </button>
+  );
+
+  return(
+    <Modal open={open} onClose={onClose} title="📊 Painel de Acompanhamento de Entregas" width={900}>
+      {/* FILTROS */}
+      <div style={{display:"flex",gap:10,marginBottom:20,justifyContent:"center",flexWrap:"wrap"}}>
+        <button onClick={()=>setFiltro("todos")} style={{padding:"8px 20px",borderRadius:10,border:"2px solid "+(filtro==="todos"?G.green:G.border),background:filtro==="todos"?"#E8F5E9":"#fff",cursor:"pointer",fontSize:12,fontWeight:700,color:filtro==="todos"?G.greenDark:G.muted}}>
+          📋 Todos ({eventos.length})
+        </button>
+        {filterBtn("vencidos", "Vencidos",   counts.vencidos,  "🔴")}
+        {filterBtn("urgentes", "≤ 7 dias",   counts.urgentes,  "⚠️")}
+        {filterBtn("futuros",  "Futuros",    counts.futuros,   "📅")}
+        {filterBtn("entregues","Entregues",  counts.entregues, "✅")}
+      </div>
+
+      {/* ALERTA 7 DIAS */}
+      {counts.urgentes>0&&filtro!=="entregues"&&(
+        <div style={{background:"#FBE9E7",border:"1px solid "+G.orange+"50",borderRadius:10,padding:"10px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:22}}>⚠️</span>
+          <div>
+            <div style={{fontWeight:700,color:G.orange,fontSize:13}}>{counts.urgentes} entrega{counts.urgentes>1?"s":""} nos próximos 7 dias!</div>
+            <div style={{fontSize:11,color:G.muted}}>Verifique com os fornecedores e confirme as entregas.</div>
+          </div>
+        </div>
+      )}
+
+      {/* LISTA */}
+      {filtrados.length===0
+        ?<div style={{textAlign:"center",padding:"50px 0",color:G.light}}><div style={{fontSize:40}}>📭</div><div style={{fontSize:14,marginTop:8}}>Nenhuma entrega nesta categoria</div></div>
+        :<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {filtrados.map(ev=>{
+            const sit = SITUACAO[ev.situacao]||SITUACAO.futuro;
+            return(
+              <div key={ev.id} onClick={()=>{onOpenPedido(ev.pedido);onClose();}}
+                style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderRadius:12,
+                  background:sit.bg,border:"1.5px solid "+sit.color+"40",cursor:"pointer",
+                  borderLeft:"4px solid "+sit.color}}
+                onMouseEnter={e=>e.currentTarget.style.boxShadow="0 2px 12px rgba(0,0,0,.1)"}
+                onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+
+                {/* Data */}
+                <div style={{textAlign:"center",minWidth:60,flexShrink:0}}>
+                  <div style={{fontSize:22}}>{sit.icon}</div>
+                  <div style={{fontSize:11,fontWeight:800,color:sit.color}}>
+                    {ev.diffDias===0?"Hoje":ev.diffDias===1?"Amanhã":ev.diffDias===-1?"Ontem":
+                      ev.diffDias<0?Math.abs(ev.diffDias)+"d atrás":"+"+ev.diffDias+"d"}
+                  </div>
+                  <div style={{fontSize:10,color:G.muted}}>{fmtD(ev.data)}</div>
+                </div>
+
+                {/* Info */}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
+                    <span style={{fontWeight:800,fontSize:13}}>Ped. {ev.pedido.numero}</span>
+                    <span style={{fontSize:12,color:G.muted}}>— {ev.pedido.fornecedor}</span>
+                    <span style={{background:sit.color+"20",color:sit.color,borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700}}>{ev.label}</span>
+                  </div>
+                  <div style={{fontSize:11,color:G.muted,marginBottom:4}}>
+                    {ev.obra&&<span>🏗️ {ev.obra.code} — {ev.obra.name} </span>}
+                    {ev.comp&&<span>· 🛒 {ev.comp.name}</span>}
+                  </div>
+                  {ev.itens.length>0&&(
+                    <div style={{fontSize:10,color:G.muted,marginBottom:4}}>
+                      📦 {ev.itens.slice(0,3).map(i=>i.descricao).join(", ")}{ev.itens.length>3&&" +mais"}
+                    </div>
+                  )}
+                  {ev.total>0&&(
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{background:"#ffffff80",borderRadius:4,height:5,flex:1,overflow:"hidden"}}>
+                        <div style={{height:"100%",borderRadius:4,background:sit.color,width:ev.pct+"%",transition:"width .4s"}}/>
+                      </div>
+                      <span style={{fontSize:10,fontWeight:700,color:sit.color}}>{ev.entregues}/{ev.total} itens</span>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{fontSize:11,color:G.muted,flexShrink:0}}>→</div>
+              </div>
+            );
+          })}
+        </div>}
+    </Modal>
+  );
+}
+
 export default function App(){
   const [users,        setUsers]        = useState(USERS0);      // loaded from Supabase
   const [obras,        setObras]        = useState([]);           // loaded from Supabase
@@ -2082,7 +2325,8 @@ export default function App(){
   const [showPF,  setShowPF]  = useState(false);
   const [detailP, setDetailP] = useState(null);
   const [showCfg, setShowCfg] = useState(false);
-  const [notifOpen,setNotifOpen] = useState(false);
+  const [notifOpen,setNotifOpen]   = useState(false);
+  const [painelOpen,setPainelOpen] = useState(false);
   const [notifsLidas,setNotifsLidas] = useState(()=>ld("fl5_notifs_lidas",[]));
 
   // Pedidos/tarefas/events/atas → localStorage (fast)
@@ -2138,6 +2382,32 @@ export default function App(){
 
   // auto-criar tarefas de atraso
   useEffect(()=>{
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    const em7  = new Date(hoje); em7.setDate(hoje.getDate()+7);
+
+    // Alerta 7 dias: verifica cada item com data de previsão
+    pedidos.filter(p=>!["cancelado","entregue"].includes(p.status)).forEach(p=>{
+      (p.itens||[]).forEach(it=>{
+        const dt = it.dataPrevisao||p.previsaoEntrega;
+        if(!dt) return;
+        const dtObj = new Date(dt+"T00:00:00");
+        if(dtObj>hoje && dtObj<=em7 && it.status!=="entregue"){
+          const key = "alerta7_"+p.id+"_"+(it.id||dt);
+          const jaExiste = tarefas.find(t=>t.id===key);
+          if(!jaExiste){
+            setTarefas(ts=>[...ts,{
+              id:key, categoria:"acompanhamento",
+              title:"⚠️ Entrega em "+Math.round((dtObj-hoje)/(864e5))+"d — Ped. "+p.numero+" ("+p.fornecedor+")",
+              description:"Item: "+it.descricao+". Previsão: "+fmtD(dt)+". Confirme com o fornecedor.",
+              status:"aberta", pedidoId:p.id, obra:p.obra,
+              assignedTo:Number(p.comprador), due:dt,
+              anexos:[], messages:[], createdBy:"Sistema", createdAt:nowTs()
+            }]);
+          }
+        }
+      });
+    });
+
     const novos=pedidos.filter(p=>isAtrasado(p)&&!tarefas.find(t=>t.pedidoId===p.id&&t.categoria==="atraso"&&t.status!=="resolvida")).map(p=>({id:uid(),categoria:"atraso",title:"Entrega atrasada — Pedido "+p.numero+" ("+p.fornecedor+")",description:"Previsão: "+fmtD(p.previsaoEntrega)+". Contatar fornecedor.",status:"aberta",pedidoId:p.id,obra:p.obra,assignedTo:Number(p.comprador),due:"",messages:[],createdBy:"Sistema",createdAt:nowTs()}));
     if(novos.length>0) setTarefas(ts=>[...novos.filter(n=>!ts.find(t=>t.pedidoId===n.pedidoId&&t.categoria==="atraso"&&t.status!=="resolvida")),...ts]);
   },[pedidos]);
@@ -2452,6 +2722,7 @@ export default function App(){
           </>}
           {/* Notificações */}
           <div style={{position:"relative"}}>
+            <button onClick={()=>setPainelOpen(true)} title="Painel de Acompanhamento" style={{background:"none",border:"none",cursor:"pointer",fontSize:19,padding:"4px 8px",position:"relative"}}>📊</button>
             <button onClick={()=>setNotifOpen(n=>!n)} style={{background:"none",border:"none",cursor:"pointer",fontSize:19,padding:"4px 8px",position:"relative"}}>
               🔔{notifs.filter(n=>!notifsLidas.includes(n.id)).length>0&&<span style={{position:"absolute",top:0,right:0,background:G.red,color:"#fff",borderRadius:20,fontSize:8,fontWeight:800,padding:"1px 4px"}}>{notifs.filter(n=>!notifsLidas.includes(n.id)).length}</span>}
             </button>

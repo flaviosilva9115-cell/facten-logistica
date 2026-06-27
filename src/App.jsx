@@ -141,22 +141,22 @@ const RCOL = {
 // ── VERSÃO DOS DADOS ─────────────────────────────────────────────────────────
 // ⚠️  ATUALIZE este número toda vez que mudar USERS0, OBRAS0 ou qualquer seed
 // Isso força todos os navegadores a descartar o localStorage antigo e pegar os dados novos
-const DATA_VERSION = "v1";
+const DATA_VERSION = "v2";
 
 const USERS0 = [
   // ─────────────────────────────────────────────────────────────────────────
-  // Para adicionar/editar usuários: preencha name, email, role e avatar (2 iniciais)
+  // E-mails reais — atualizados em 27/06/2026
   // Senha inicial de todos: facten2025
-  // No primeiro acesso o sistema obrigará troca de senha
+  // No primeiro acesso o sistema obrigará troca de senha pessoal
   // ─────────────────────────────────────────────────────────────────────────
-  {id:1, name:"Flávio Silva",       email:"flavio.silva@amorimcoutinho.com.br",    role:"coordenador",   avatar:"FS", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
-  {id:2, name:"Francisco Cunha",    email:"francisco.cunha@amorimcoutinho.com.br", role:"comprador",     avatar:"FC", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
-  {id:3, name:"Felipe Vitorino",    email:"felipe.vitorino@amorimcoutinho.com.br",    role:"comprador",     avatar:"FV", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
-  {id:4, name:"Cristiano Teixeira", email:"cristiano.teixeira@amorimcoutinho.com.br", role:"aprovador",     avatar:"CT", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
-  {id:5, name:"Graça Macedo",       email:"gracamacedo@amorimcoutinho.com.br",     role:"almoxarife",    avatar:"GM", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
-  {id:6, name:"Caio Monteiro",      email:"caio.monteiro@amorimcoutinho.com.br",      role:"almoxarife",    avatar:"CM", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
-  {id:7, name:"Vicente Nascimento", email:"vicente.ferreira@amorimcoutinho.com.br",   role:"almoxarife",    avatar:"VN", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
-  {id:8, name:"Nayara Couto",       email:"nayara@amorimcoutinho.com.br",    role:"juridico",      avatar:"NC", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:1, name:"Flávio Silva",       email:"flavio.silva@amorimcoutinho.com.br",       role:"coordenador", avatar:"FS", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:2, name:"Francisco Cunha",    email:"francisco.cunha@amorimcoutinho.com.br",    role:"comprador",   avatar:"FC", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:3, name:"Felipe Vitorino",    email:"felipe.vitorino@amorimcoutinho.com.br",    role:"comprador",   avatar:"FV", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:4, name:"Cristiano Teixeira", email:"cristiano.teixeira@amorimcoutinho.com.br", role:"aprovador",   avatar:"CT", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:5, name:"Graça Macedo",       email:"gracamacedo@amorimcoutinho.com.br",        role:"almoxarife",  avatar:"GM", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:6, name:"Caio Monteiro",      email:"caio.monteiro@amorimcoutinho.com.br",      role:"almoxarife",  avatar:"CM", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:7, name:"Vicente Nascimento", email:"vicente.ferreira@amorimcoutinho.com.br",   role:"almoxarife",  avatar:"VN", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:8, name:"Nayara Couto",       email:"nayara@amorimcoutinho.com.br",             role:"juridico",    avatar:"NC", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
 ];
 
 const hashPass = async s => {
@@ -1254,13 +1254,13 @@ function ResetSenha({userId,users,onSave}){
 }
 
 function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFornecedores,saveUser,removeUser,saveObra,removeObra,saveForn,removeForn,toast}){
-  // Use DB-aware functions when available, fallback to local setters
-  const doSaveUser  = saveUser  || (u=>setUsers(us=>us.find(x=>x.id===u.id)?us.map(x=>x.id===u.id?u:x):[...us,u]));
-  const doRemoveUser= removeUser|| (id=>setUsers(us=>us.filter(x=>x.id!==id)));
-  const doSaveObra  = saveObra  || (o=>setObras(os=>os.find(x=>x.id===o.id)?os.map(x=>x.id===o.id?o:x):[...os,o]));
-  const doRemoveObra= removeObra|| (id=>setObras(os=>os.filter(x=>x.id!==id)));
-  const doSaveForn  = saveForn  || (f=>setFornecedores(fs=>fs.find(x=>x.id===f.id)?fs.map(x=>x.id===f.id?f:x):[...fs,f]));
-  const doRemoveForn= removeForn|| (id=>setFornecedores(fs=>fs.filter(x=>x.id!==id)));
+  // Always use the DB-aware functions passed from App
+  const doSaveUser   = saveUser;
+  const doRemoveUser = removeUser;
+  const doSaveObra   = saveObra;
+  const doRemoveObra = removeObra;
+  const doSaveForn   = saveForn;
+  const doRemoveForn = removeForn;
   const [tab,setTab]=useState("obras");
 
   // ── OBRAS ──
@@ -1269,15 +1269,15 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
   const setO=(k,v)=>setOForm(p=>({...p,[k]:v}));
   const almoxs=users.filter(u=>["almoxarife","aux_almoxarife"].includes(u.role)&&u.active);
 
-  function saveObra(){
-    if(!oForm.code||!oForm.name){alert("Código e nome obrigatórios.");return;}
+  async function saveObra(){
+    if(!oForm.code||!oForm.name){toast("⚠️ Código e nome obrigatórios.");return;}
     const dup=obras.find(o=>o.code===oForm.code&&o.id!==oEdit);
-    if(dup){alert("Código "+oForm.code+" já existe.");return;}
-    const newId = oEdit ? oEdit : (obras.length>0 ? Math.max(...obras.map(x=>Number(x.id)||0))+1 : 1);
+    if(dup){toast("⚠️ Código "+oForm.code+" já existe.");return;}
+    const newId = oEdit ? Number(oEdit) : (obras.length>0 ? Math.max(...obras.map(x=>Number(x.id)||0))+1 : 1);
     const saved = {...oForm, id:newId};
-    doSaveObra(saved).catch(e=>toast("⚠️ Erro ao salvar obra: "+e.message));
-    if(!oEdit) toast("Salvando obra…");
-    setOEdit(null);setOForm(oBlank);
+    toast(oEdit?"💾 Atualizando obra…":"💾 Criando obra…");
+    try { await doSaveObra(saved); setOEdit(null); setOForm(oBlank); }
+    catch(e){ toast("❌ Erro: "+e.message); }
   }
 
   // ── FORNECEDORES ──
@@ -1285,18 +1285,18 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
   const [fForm,setFForm]=useState(fBlank);const[fEdit,setFEdit]=useState(null);
   const setFF=(k,v)=>setFForm(p=>({...p,[k]:v}));
 
-  function saveForn(){
-    if(!fForm.nome){alert("Nome obrigatório.");return;}
+  async function saveForn(){
+    if(!fForm.nome){toast("⚠️ Nome obrigatório.");return;}
     if(fForm.cnpj){
       const cnpjNum=fForm.cnpj.replace(/\D/g,"");
       const dup=fornecedores.find(f=>f.cnpj?.replace(/\D/g,"")===cnpjNum&&f.id!==fEdit);
-      if(dup){alert("CNPJ já cadastrado para: "+dup.nome);return;}
+      if(dup){toast("⚠️ CNPJ já cadastrado para: "+dup.nome);return;}
     }
-    const newId = fEdit ? fEdit : (fornecedores.length>0 ? Math.max(...fornecedores.map(x=>Number(x.id)||0))+1 : 1);
+    const newId = fEdit ? Number(fEdit) : (fornecedores.length>0 ? Math.max(...fornecedores.map(x=>Number(x.id)||0))+1 : 1);
     const saved = {...fForm, id:newId};
-    doSaveForn(saved).catch(e=>toast("⚠️ Erro ao salvar fornecedor: "+e.message));
-    if(!fEdit) toast("Salvando fornecedor…");
-    setFEdit(null);setFForm(fBlank);
+    toast(fEdit?"💾 Atualizando fornecedor…":"💾 Criando fornecedor…");
+    try { await doSaveForn(saved); setFEdit(null); setFForm(fBlank); }
+    catch(e){ toast("❌ Erro: "+e.message); }
   }
 
   // ── USUÁRIOS ──
@@ -1304,19 +1304,31 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
   const [uForm,setUForm]=useState(uBlank);const[uEdit,setUEdit]=useState(null);
   const setU=(k,v)=>setUForm(p=>({...p,[k]:v}));
 
-  function saveUser(){
-    if(!uForm.name||!uForm.email){alert("Nome e e-mail obrigatórios.");return;}
+  async function saveUser(){
+    if(!uForm.name||!uForm.email){toast("⚠️ Nome e e-mail obrigatórios.");return;}
     const dup=users.find(u=>u.email?.toLowerCase()===uForm.email.toLowerCase()&&u.id!==uEdit);
-    if(dup){alert("E-mail já cadastrado.");return;}
+    if(dup){toast("⚠️ E-mail já cadastrado para "+dup.name);return;}
     const av=uForm.name.split(" ").map(n=>n[0]).slice(0,2).join("").toUpperCase();
-    const newId = uEdit ? uEdit : (users.length>0 ? Math.max(...users.map(x=>Number(x.id)||0))+1 : 1);
-    const saved = {...uForm, id:newId, avatar:av,
+    const newId = uEdit ? Number(uEdit) : (users.length>0 ? Math.max(...users.map(x=>Number(x.id)||0))+1 : 1);
+    const saved = {
+      id: newId,
+      name: uForm.name,
+      email: uForm.email,
+      role: uForm.role,
+      obras: uForm.obras||[],
+      active: uForm.active!==false,
+      avatar: av,
       senhaHash: uEdit ? (uForm.senhaHash||"") : "",
       primeiroAcesso: uEdit ? (uForm.primeiroAcesso!==false) : true
     };
-    doSaveUser(saved).catch(e=>toast("⚠️ Erro ao salvar: "+e.message));
-    if(!uEdit) toast("Salvando usuário…");
-    setUEdit(null);setUForm(uBlank);
+    toast(uEdit ? "💾 Salvando alterações…" : "💾 Criando usuário…");
+    try {
+      await doSaveUser(saved);
+      setUEdit(null);
+      setUForm(uBlank);
+    } catch(e) {
+      toast("❌ Erro: "+e.message);
+    }
   }
 
   const TB=(k,l)=><button onClick={()=>setTab(k)} style={{padding:"8px 18px",borderRadius:8,border:"none",cursor:"pointer",fontSize:13,fontWeight:700,background:tab===k?G.green:G.alt,color:tab===k?"#fff":G.muted}}>{l}</button>;
@@ -1785,7 +1797,20 @@ export default function App(){
       try{
         const [dbU,dbO,dbF] = await Promise.all([dbGet("usuarios"),dbGet("obras"),dbGet("fornecedores")]);
         if(dbU.length>0){
-          setUsers(dbU.map(userFromDb));
+          // Sync: update existing users with new emails from USERS0 (preserva senhaHash)
+          const merged = USERS0.map(seed=>{
+            const existing = dbU.find(d=>d.id===seed.id);
+            if(existing){
+              // Keep existing password but update email/name if changed in seed
+              return userFromDb({...existing, name:seed.name, email:seed.email, role:seed.role, avatar:seed.avatar});
+            }
+            return seed;
+          });
+          // Also include any users added via Settings (not in USERS0)
+          const extraUsers = dbU.filter(d=>!USERS0.find(s=>s.id===d.id)).map(userFromDb);
+          setUsers([...merged, ...extraUsers]);
+          // Sync updated users back to DB
+          await Promise.all(merged.map(u=>dbUpsert("usuarios",userToDb(u))));
         } else {
           // Primeiro deploy: seed com USERS0
           await Promise.all(USERS0.map(u=>dbUpsert("usuarios",userToDb(u))));
@@ -1899,12 +1924,16 @@ export default function App(){
   function nextId(list){ return list.length>0 ? Math.max(...list.map(x=>Number(x.id)||0))+1 : 1; }
 
   async function saveUser(u){
-    // Ensure ID is a small integer (Supabase bigint)
     const row = {...u, id: Number(u.id)};
-    setUsers(us=>us.find(x=>x.id===row.id)?us.map(x=>x.id===row.id?row:x):[...us,row]);
+    // Update local state immediately (optimistic)
+    setUsers(us=>us.find(x=>Number(x.id)===row.id)?us.map(x=>Number(x.id)===row.id?row:x):[...us,row]);
+    // Sync to Supabase
     const result = await dbUpsert("usuarios", userToDb(row));
-    if(!result) toast("⚠️ Usuário salvo localmente — verifique conexão com banco.");
-    else toast("✅ Usuário salvo no banco!");
+    if(result){
+      toast("✅ "+(u.id&&users.find(x=>Number(x.id)===Number(u.id))?"Usuário atualizado!":"Usuário criado!"));
+    } else {
+      toast("⚠️ Salvo localmente — sem conexão com banco.");
+    }
   }
   async function removeUser(id){
     setUsers(us=>us.filter(x=>x.id!==id));

@@ -3,7 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pi
 
 // ══ constants ══
 // ── DESIGN TOKENS ────────────────────────────────────────────────────────────
-export const G = {
+const G = {
   green:"#4CAF50", greenDark:"#2E7D32", greenLight:"#A5D6A7",
   red:"#E74C3C", gold:"#F4C430", goldDark:"#D4A017",
   purple:"#9C27B0", blue:"#2196F3", teal:"#00897B", orange:"#FF7043",
@@ -13,7 +13,7 @@ export const G = {
 };
 
 // ── PEDIDO STATUS ─────────────────────────────────────────────────────────────
-export const STATUS = {
+const STATUS = {
   pendente:   { label:"Pendente",              color:G.gold,   bg:"#FFF8E1", icon:"⏳" },
   entregue:   { label:"Entregue",              color:G.green,  bg:"#E8F5E9", icon:"✅" },
   parcial:    { label:"Parcial",               color:G.blue,   bg:"#E3F2FD", icon:"📦" },
@@ -23,14 +23,14 @@ export const STATUS = {
 };
 
 // ── TAREFA STATUS ─────────────────────────────────────────────────────────────
-export const TSTAT = {
+const TSTAT = {
   aberta:    { label:"Aberta",       color:G.red,    bg:"#FFEBEE", icon:"🔴" },
   andamento: { label:"Em Andamento", color:G.gold,   bg:"#FFF8E1", icon:"🟡" },
   resolvida: { label:"Resolvida",    color:G.green,  bg:"#E8F5E9", icon:"🟢" },
 };
 
 // ── TAREFA CATEGORIAS ─────────────────────────────────────────────────────────
-export const TCAT = {
+const TCAT = {
   acompanhamento: { label:"Acompanhamento", color:G.green,  bg:"#E8F5E9", icon:"📋", desc:"Acompanhamento do pedido e entregas" },
   boleto:         { label:"Boleto / NF",    color:G.purple, bg:"#F3E5F5", icon:"🧾", desc:"Boleto ou Nota Fiscal pendente" },
   pergunta:       { label:"Dúvida",         color:G.blue,   bg:"#E3F2FD", icon:"❓", desc:"Pergunta sobre o pedido ou material" },
@@ -38,7 +38,7 @@ export const TCAT = {
 };
 
 // ── PERFIS ────────────────────────────────────────────────────────────────────
-export const ROLES = {
+const ROLES = {
   coordenador:   "Coordenador de Suprimentos",
   comprador:     "Comprador",
   almoxarife:    "Almoxarife",
@@ -55,7 +55,7 @@ export const ROLES = {
   coord_control: "Coord. de Controladoria",
 };
 
-export const RCOL = {
+const RCOL = {
   coordenador:G.greenDark, comprador:G.green, almoxarife:G.blue,
   aux_almoxarife:"#42A5F5", aprovador:G.gold, juridico:G.red,
   fiscal:G.orange, aux_engenharia:"#26A69A", coord_obras:"#7E57C2",
@@ -64,7 +64,7 @@ export const RCOL = {
 };
 
 // ── SEED USERS ────────────────────────────────────────────────────────────────
-export const USERS0 = [
+const USERS0 = [
   {id:1,name:"Flávio Silva",    email:"flavio@amorimcoutinho.com.br",   role:"coordenador",   avatar:"FS",active:true,obras:[],senhaHash:""},
   {id:2,name:"Francisco Cunha", email:"francisco@amorimcoutinho.com.br",role:"comprador",     avatar:"FC",active:true,obras:[],senhaHash:""},
   {id:3,name:"Felipe Vitorino", email:"felipe@amorimcoutinho.com.br",   role:"comprador",     avatar:"FV",active:true,obras:[],senhaHash:""},
@@ -75,22 +75,22 @@ export const USERS0 = [
   {id:8,name:"Nayara Couto",    email:"nayara@amorimcoutinho.com.br",   role:"juridico",      avatar:"NC",active:true,obras:[],senhaHash:""},
 ];
 
-export const hashPass = async s => {
+const hashPass = async s => {
   const b = new TextEncoder().encode(s);
   const h = await crypto.subtle.digest("SHA-256",b);
   return Array.from(new Uint8Array(h)).map(x=>x.toString(16).padStart(2,"0")).join("");
 };
 
-export const uid   = () => Math.random().toString(36).slice(2,10);
-export const nowTs = () => new Date().toISOString();
-export const fmtD  = iso => iso ? new Date(iso).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"}) : "—";
-export const fmtDT = iso => iso ? new Date(iso).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
-export const isAtrasado = p => p.previsaoEntrega && new Date(p.previsaoEntrega)<new Date() && !["entregue","cancelado"].includes(p.status);
-export const ld = (k,fb) => { try{const v=localStorage.getItem(k);return v?JSON.parse(v):fb;}catch{return fb;} };
-export const sv = (k,v)  => { try{localStorage.setItem(k,JSON.stringify(v));}catch{} };
+const uid   = () => Math.random().toString(36).slice(2,10);
+const nowTs = () => new Date().toISOString();
+const fmtD  = iso => iso ? new Date(iso).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"}) : "—";
+const fmtDT = iso => iso ? new Date(iso).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
+const isAtrasado = p => p.previsaoEntrega && new Date(p.previsaoEntrega)<new Date() && !["entregue","cancelado"].includes(p.status);
+const ld = (k,fb) => { try{const v=localStorage.getItem(k);return v?JSON.parse(v):fb;}catch{return fb;} };
+const sv = (k,v)  => { try{localStorage.setItem(k,JSON.stringify(v));}catch{} };
 
 // ── IA CALL ───────────────────────────────────────────────────────────────────
-export async function callIA(messages, maxTokens=1000, system="Assistente FACTEN.") {
+async function callIA(messages, maxTokens=1000, system="Assistente FACTEN.") {
   const r = await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:maxTokens,system,messages})});
   const d = await r.json();
   if(d.error) throw new Error(d.error.message||JSON.stringify(d.error));
@@ -98,7 +98,7 @@ export async function callIA(messages, maxTokens=1000, system="Assistente FACTEN
 }
 
 // ── PDF EXTRACTOR ─────────────────────────────────────────────────────────────
-export async function extractPedidoPDF(b64) {
+async function extractPedidoPDF(b64) {
   const system = `Você é extrator especializado de Pedidos de Compra Sienge da Amorim Coutinho Engenharia. REGRA ABSOLUTA: retorne SOMENTE JSON válido, sem texto antes ou depois, sem markdown, sem backticks, sem comentários.`;
   const prompt = `Extraia os dados deste Pedido de Compra Sienge e retorne EXATAMENTE este JSON:
 {"numero":"","cnpj_fornecedor":"","nome_fornecedor":"","codigo_obra":"","nome_obra":"","valor_total":"","data_entrega":"YYYY-MM-DD","itens":[{"descricao":"","unidade":"","quantidade":1,"valor_unitario":"","valor_total":""}]}
@@ -137,7 +137,7 @@ const K = {
   li:"fl5_li", cu:"fl5_cu",
 };
 
-export function loadState(){
+function loadState(){
   return {
     users:        ld(K.users,        USERS0),
     obras:        ld(K.obras,        []),
@@ -151,12 +151,12 @@ export function loadState(){
   };
 }
 
-export function persist(key, value){
+function persist(key, value){
   sv(K[key], value);
 }
 
 // ── ANTI-DUPLICATE helpers ─────────────────────────────────────────────────
-export function findOrCreateFornecedor(fornecedores, parsed){
+function findOrCreateFornecedor(fornecedores, parsed){
   const cnpj = (parsed.cnpj_fornecedor||"").trim();
   const nome = (parsed.nome_fornecedor||parsed.fornecedor||"").trim();
   if(!nome) return { fornecedores, match:null, created:false };
@@ -172,7 +172,7 @@ export function findOrCreateFornecedor(fornecedores, parsed){
   return { fornecedores:[...fornecedores, match], match, created:true };
 }
 
-export function findOrCreateObra(obras, parsed){
+function findOrCreateObra(obras, parsed){
   const code = (parsed.codigo_obra||parsed.obra_code||"").toString().trim().replace(/\D.*$/,""); // digits only
   const name = (parsed.nome_obra||parsed.obra_name||"").trim();
   if(!code) return { obras, match:null, created:false };
@@ -185,7 +185,7 @@ export function findOrCreateObra(obras, parsed){
 }
 
 // ── TASK AUTO-CREATE ────────────────────────────────────────────────────────
-export function buildAcompanhamentoTask(pedido, forn, obra, comprador){
+function buildAcompanhamentoTask(pedido, forn, obra, comprador){
   const resumo = (pedido.itens||[]).slice(0,3).map(i=>i.descricao).join(", ")+(pedido.itens?.length>3?" e mais...":"");
   return {
     id: uid(),
@@ -205,40 +205,39 @@ export function buildAcompanhamentoTask(pedido, forn, obra, comprador){
 
 
 // ══ atoms ══
-import { useState, useEffect } from "react";
 
-export const IB={width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #DDE8DD",fontSize:13,color:"#1A2B1A",background:"#fff",outline:"none",fontFamily:"Inter,sans-serif",boxSizing:"border-box",transition:"border-color .15s"};
+const IB={width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #DDE8DD",fontSize:13,color:"#1A2B1A",background:"#fff",outline:"none",fontFamily:"Inter,sans-serif",boxSizing:"border-box",transition:"border-color .15s"};
 
-export function Av({s="?",size=32,color=G.green}){
+function Av({s="?",size=32,color=G.green}){
   return <div style={{width:size,height:size,borderRadius:"50%",background:color,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:size*.36,flexShrink:0,userSelect:"none"}}>{s}</div>;
 }
-export function Chip({color,bg,children,style:sx={}}){
+function Chip({color,bg,children,style:sx={}}){
   return <span style={{display:"inline-flex",alignItems:"center",gap:3,background:bg,color,border:"1px solid "+color+"30",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700,whiteSpace:"nowrap",...sx}}>{children}</span>;
 }
-export function Toast({msg,onDone}){
+function Toast({msg,onDone}){
   useEffect(()=>{if(!msg)return;const t=setTimeout(onDone,4500);return()=>clearTimeout(t);},[msg]);
   if(!msg)return null;
   return <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",background:G.greenDark,color:"#fff",borderRadius:12,padding:"12px 24px",fontSize:14,fontWeight:600,zIndex:9999,boxShadow:"0 8px 24px rgba(0,0,0,.22)",animation:"su .2s ease",maxWidth:460,textAlign:"center"}}>{msg}</div>;
 }
-export function Inp({style:sx,...p}){
+function Inp({style:sx,...p}){
   const[f,sf]=useState(false);
   return <input {...p} onFocus={()=>sf(true)} onBlur={()=>sf(false)} style={{...IB,borderColor:f?"#4CAF50":"#DDE8DD",...sx}}/>;
 }
-export function Sel({children,style:sx,...p}){
+function Sel({children,style:sx,...p}){
   return <select {...p} style={{...IB,paddingRight:28,...sx}}>{children}</select>;
 }
-export function Txa({style:sx,...p}){
+function Txa({style:sx,...p}){
   const[f,sf]=useState(false);
   return <textarea {...p} onFocus={()=>sf(true)} onBlur={()=>sf(false)} style={{...IB,minHeight:72,resize:"vertical",borderColor:f?"#4CAF50":"#DDE8DD",...sx}}/>;
 }
-export function Fld({label,required,hint,children}){
+function Fld({label,required,hint,children}){
   return <div style={{marginBottom:12}}>
     <label style={{display:"block",fontSize:11,fontWeight:700,color:G.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>{label}{required&&<span style={{color:G.red}}> *</span>}</label>
     {children}
     {hint&&<div style={{fontSize:10,color:G.light,marginTop:3}}>{hint}</div>}
   </div>;
 }
-export function Btn({children,variant="primary",onClick,disabled,style:sx={},size="md",title}){
+function Btn({children,variant="primary",onClick,disabled,style:sx={},size="md",title}){
   const pad={sm:"5px 11px",md:"9px 18px",lg:"12px 28px"}[size];
   const vars={
     primary:{background:G.green,color:"#fff",border:"none"},
@@ -249,7 +248,7 @@ export function Btn({children,variant="primary",onClick,disabled,style:sx={},siz
   };
   return <button title={title} onClick={onClick} disabled={disabled} style={{padding:pad,borderRadius:8,fontFamily:"Inter,sans-serif",fontSize:13,fontWeight:700,cursor:disabled?"not-allowed":"pointer",opacity:disabled?.55:1,transition:"opacity .15s,transform .1s",...vars[variant],...sx}}>{children}</button>;
 }
-export function Modal({open,onClose,title,width=700,children,footer}){
+function Modal({open,onClose,title,width=700,children,footer}){
   useEffect(()=>{
     if(!open)return;
     const h=e=>e.key==="Escape"&&onClose();
@@ -268,7 +267,7 @@ export function Modal({open,onClose,title,width=700,children,footer}){
     </div>
   </div>;
 }
-export function Logo({size=36}){
+function Logo({size=36}){
   return <svg width={size} height={size} viewBox="0 0 52 52">
     <rect x="0"  y="0"  width="23" height="23" rx="5" fill={G.green}/>
     <rect x="29" y="0"  width="23" height="23" rx="5" fill={G.red}/>
@@ -276,18 +275,18 @@ export function Logo({size=36}){
     <rect x="29" y="29" width="23" height="23" rx="5" fill="#222"/>
   </svg>;
 }
-export function Badge({n,color=G.red}){
+function Badge({n,color=G.red}){
   if(!n)return null;
   return <span style={{background:color,color:"#fff",borderRadius:20,fontSize:9,fontWeight:800,padding:"1px 5px",minWidth:16,textAlign:"center"}}>{n>99?"99+":n}</span>;
 }
-export function EmptyState({icon="📭",title,subtitle}){
+function EmptyState({icon="📭",title,subtitle}){
   return <div style={{textAlign:"center",padding:"60px 20px",color:G.light}}>
     <div style={{fontSize:52,marginBottom:12}}>{icon}</div>
     <div style={{fontSize:16,fontWeight:700,color:G.muted,marginBottom:6}}>{title}</div>
     {subtitle&&<div style={{fontSize:13}}>{subtitle}</div>}
   </div>;
 }
-export function Section({title,right,children,style:sx={}}){
+function Section({title,right,children,style:sx={}}){
   return <div style={{marginBottom:20,...sx}}>
     {(title||right)&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
       {title&&<div style={{fontSize:13,fontWeight:800,color:G.text,textTransform:"uppercase",letterSpacing:"0.05em"}}>{title}</div>}
@@ -299,9 +298,8 @@ export function Section({title,right,children,style:sx={}}){
 
 
 // ══ PedidoForm ══
-import { useState, useRef, useEffect } from "react";
 
-export default function PedidoForm({open,onClose,onSave,users,obras,fornecedores,onAutoCreate,cu}){
+function PedidoForm({open,onClose,onSave,users,obras,fornecedores,onAutoCreate,cu}){
   const blank={numero:"",fornecedorId:"",obra:"",comprador:String(cu.id),valor:"",previsaoEntrega:"",observacao:"",itens:[]};
   const [mode,setMode]       = useState("pdf");
   const [f,setF]             = useState(blank);
@@ -466,7 +464,6 @@ export default function PedidoForm({open,onClose,onSave,users,obras,fornecedores
 
 
 // ══ PedidoDetail ══
-import { useState, useRef, useEffect } from "react";
 
 const STATUS_CFG = {
   pendente:   { label:"Pendente",   color:"#F4C430", bg:"#FFF8E1", icon:"⏳" },
@@ -589,7 +586,7 @@ function TarefaBoletoModal({open, onClose, tarefa, cu, onAnexo, onConcluir, toas
 }
 
 // ── MAIN COMPONENT ────────────────────────────────────────────────────────────
-export default function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateItens,onAddMsg,onBoleto,onDelete,onCancel,tarefas,setTarefas,toast}) {
+function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateItens,onAddMsg,onBoleto,onDelete,onCancel,tarefas,setTarefas,toast}) {
   const [tab,setTab]           = useState("insumos");
   const [filtroIt,setFiltroIt] = useState("todos");
   const [msgTxt,setMsgTxt]     = useState("");
@@ -897,8 +894,7 @@ export default function PedidoDetail({open,onClose,pedido,users,obras,fornecedor
                 <div style={{fontSize:18}}>{typeof m.avatar==="string"&&m.avatar.length>2?m.avatar:<Av s={m.avatar||"?"} size={26} color={m.type==="ia"?G.greenDark:G.green}/>}</div>
                 <div style={{maxWidth:"76%"}}>
                   <div style={{fontSize:10,color:G.muted,marginBottom:2,textAlign:cu.id===m.userId?"right":"left"}}><strong>{m.userName}</strong> · {fmtDT(m.createdAt)}</div>
-                  <div style={{fontSize:13,background:m.type==="ia"?"#E8F5E9":m.type==="sistema"?"#FFF8E1":cu.id===m.userId?"#DCF8C6":"#fff",borderRadius:10,padding:"8px 11px",border:"1px solid "+(m.type==="ia"?"#A5D6A760":m.type==="sistema"?"#F4C43060":"#e0e0e0"),color:m.type==="ia"?G.greenDark:G.text,lineHeight:1.5}} dangerouslySetInnerHTML={{__html:(m.text||"").replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>").replace(/
-/g,"<br/>")}}/>
+                  <div style={{fontSize:13,background:m.type==="ia"?"#E8F5E9":m.type==="sistema"?"#FFF8E1":cu.id===m.userId?"#DCF8C6":"#fff",borderRadius:10,padding:"8px 11px",border:"1px solid "+(m.type==="ia"?"#A5D6A760":m.type==="sistema"?"#F4C43060":"#e0e0e0"),color:m.type==="ia"?G.greenDark:G.text,lineHeight:1.5}} dangerouslySetInnerHTML={{__html:(m.text||"").replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>").replace(/\n/g,"<br/>")}}/>
                   {m.type==="anexo"&&m.anexo&&<a href={m.anexo.data} download={m.anexo.name} style={{display:"block",fontSize:11,color:G.green,marginTop:4}}>⬇ {m.anexo.name}</a>}
                 </div>
               </div>
@@ -1005,7 +1001,6 @@ export default function PedidoDetail({open,onClose,pedido,users,obras,fornecedor
 
 
 // ══ Settings ══
-import { useState } from "react";
 
 function ConfirmDel({label,onConfirm}){
   const[ask,setAsk]=useState(false);
@@ -1029,7 +1024,7 @@ function ResetSenha({userId,users,onSave}){
   </>;
 }
 
-export default function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFornecedores,toast}){
+function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFornecedores,toast}){
   const [tab,setTab]=useState("obras");
 
   // ── OBRAS ──
@@ -1208,11 +1203,9 @@ export default function Settings({open,onClose,users,obras,fornecedores,setUsers
 
 
 // ══ App ══
-import { useState, useEffect } from "react";
-import { BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,PieChart,Pie,Cell,LineChart,Line,CartesianGrid,Legend } from "recharts";
 
 // ── PERSIST KEYS ─────────────────────────────────────────────────────────────
-const K={users:"fl5_users",obras:"fl5_obras",fornecedores:"fl5_forn",pedidos:"fl5_pedidos",tarefas:"fl5_tarefas",events:"fl5_events",atas:"fl5_atas",li:"fl5_li",cu:"fl5_cu"};
+
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
 function Dashboard({pedidos,tarefas,users,obras,fornecedores,cu,onOpenPedido,onOpenObra}){

@@ -1,5 +1,76 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, Legend } from "recharts";
+import { createClient } from "@supabase/supabase-js";
+
+// ── SUPABASE CLIENT ───────────────────────────────────────────────────────────
+const SB_URL  = import.meta.env.VITE_SUPABASE_URL  || "";
+const SB_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const sb = SB_URL ? createClient(SB_URL, SB_ANON) : null;
+
+// ── DB HELPERS ────────────────────────────────────────────────────────────────
+async function dbGet(table, fallback=[]) {
+  if(!sb) return fallback;
+  try {
+    const { data, error } = await sb.from(table).select("*").order("id");
+    if(error) throw error;
+    return data || fallback;
+  } catch(e) {
+    console.warn("Supabase dbGet error:", table, e.message);
+    return fallback;
+  }
+}
+async function dbUpsert(table, row) {
+  if(!sb) return null;
+  try {
+    const { data, error } = await sb.from(table).upsert(row, {onConflict:"id"}).select();
+    if(error) throw error;
+    return data?.[0];
+  } catch(e) {
+    console.warn("Supabase dbUpsert error:", table, e.message);
+    return null;
+  }
+}
+async function dbDelete(table, id) {
+  if(!sb) return;
+  try {
+    const { error } = await sb.from(table).delete().eq("id", id);
+    if(error) throw error;
+  } catch(e) {
+    console.warn("Supabase dbDelete error:", table, e.message);
+  }
+}
+
+// ── ROW MAPPERS ───────────────────────────────────────────────────────────────
+const userToDb = u => ({
+  id: u.id, name: u.name, email: u.email, role: u.role,
+  avatar: u.avatar, active: u.active, obras: u.obras||[],
+  senha_hash: u.senhaHash||null, primeiro_acesso: u.primeiroAcesso!==false
+});
+const userFromDb = r => ({
+  id: r.id, name: r.name, email: r.email||"", role: r.role,
+  avatar: r.avatar||"", active: r.active, obras: r.obras||[],
+  senhaHash: r.senha_hash||"", primeiroAcesso: r.primeiro_acesso!==false
+});
+const obraToDb = o => ({
+  id: o.id, code: o.code, name: o.name, city: o.city||null,
+  state: o.state||"MA", almoxarife: o.almoxarife||null,
+  active: o.active!==false, created_from: o.createdFrom||null
+});
+const obraFromDb = r => ({
+  id: r.id, code: r.code, name: r.name, city: r.city||"",
+  state: r.state||"MA", almoxarife: r.almoxarife||null,
+  active: r.active, createdFrom: r.created_from||null
+});
+const fornToDb = f => ({
+  id: f.id, nome: f.nome, cnpj: f.cnpj||null, contato: f.contato||null,
+  email: f.email||null, telefone: f.telefone||null, ativo: f.ativo!==false,
+  created_from: f.createdFrom||null
+});
+const fornFromDb = r => ({
+  id: r.id, nome: r.nome, cnpj: r.cnpj||"", contato: r.contato||"",
+  email: r.email||"", telefone: r.telefone||"", ativo: r.ativo!==false,
+  createdFrom: r.created_from||null
+});
 
 // ══ constants ══
 // ── DESIGN TOKENS ────────────────────────────────────────────────────────────
@@ -64,15 +135,25 @@ const RCOL = {
 };
 
 // ── SEED USERS ────────────────────────────────────────────────────────────────
+// ── VERSÃO DOS DADOS ─────────────────────────────────────────────────────────
+// ⚠️  ATUALIZE este número toda vez que mudar USERS0, OBRAS0 ou qualquer seed
+// Isso força todos os navegadores a descartar o localStorage antigo e pegar os dados novos
+const DATA_VERSION = "v1";
+
 const USERS0 = [
-  {id:1,name:"Flávio Silva",    email:"flavio@amorimcoutinho.com.br",   role:"coordenador",   avatar:"FS",active:true,obras:[],senhaHash:""},
-  {id:2,name:"Francisco Cunha", email:"francisco@amorimcoutinho.com.br",role:"comprador",     avatar:"FC",active:true,obras:[],senhaHash:""},
-  {id:3,name:"Felipe Vitorino", email:"felipe@amorimcoutinho.com.br",   role:"comprador",     avatar:"FV",active:true,obras:[],senhaHash:""},
-  {id:4,name:"Cristiano Teixeira",email:"cristiano@amorimcoutinho.com.br",role:"aprovador",  avatar:"CT",active:true,obras:[],senhaHash:""},
-  {id:5,name:"Graça Macedo",    email:"graca@amorimcoutinho.com.br",    role:"almoxarife",    avatar:"GM",active:true,obras:[],senhaHash:""},
-  {id:6,name:"Caio Monteiro",   email:"caio@amorimcoutinho.com.br",     role:"almoxarife",    avatar:"CM",active:true,obras:[],senhaHash:""},
-  {id:7,name:"Vicente Nascimento",email:"vicente@amorimcoutinho.com.br",role:"almoxarife",   avatar:"VN",active:true,obras:[],senhaHash:""},
-  {id:8,name:"Nayara Couto",    email:"nayara@amorimcoutinho.com.br",   role:"juridico",      avatar:"NC",active:true,obras:[],senhaHash:""},
+  // ─────────────────────────────────────────────────────────────────────────
+  // Para adicionar/editar usuários: preencha name, email, role e avatar (2 iniciais)
+  // Senha inicial de todos: facten2025
+  // No primeiro acesso o sistema obrigará troca de senha
+  // ─────────────────────────────────────────────────────────────────────────
+  {id:1, name:"Flávio Silva",       email:"flavio.silva@amorimcoutinho.com.br",    role:"coordenador",   avatar:"FS", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:2, name:"Francisco Cunha",    email:"francisco.cunha@amorimcoutinho.com.br", role:"comprador",     avatar:"FC", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:3, name:"Felipe Vitorino",    email:"felipe.vitorino@amorimcoutinho.com.br",    role:"comprador",     avatar:"FV", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:4, name:"Cristiano Teixeira", email:"cristiano.teixeira@amorimcoutinho.com.br", role:"aprovador",     avatar:"CT", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:5, name:"Graça Macedo",       email:"gracamacedo@amorimcoutinho.com.br",     role:"almoxarife",    avatar:"GM", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:6, name:"Caio Monteiro",      email:"caio.monteiro@amorimcoutinho.com.br",      role:"almoxarife",    avatar:"CM", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:7, name:"Vicente Nascimento", email:"vicente.ferreira@amorimcoutinho.com.br",   role:"almoxarife",    avatar:"VN", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
+  {id:8, name:"Nayara Couto",       email:"nayara@amorimcoutinho.com.br",    role:"juridico",      avatar:"NC", active:true, obras:[], senhaHash:"", primeiroAcesso:true},
 ];
 
 const hashPass = async s => {
@@ -88,6 +169,32 @@ const fmtDT = iso => iso ? new Date(iso).toLocaleString("pt-BR",{day:"2-digit",m
 const isAtrasado = p => p.previsaoEntrega && new Date(p.previsaoEntrega)<new Date() && !["entregue","cancelado"].includes(p.status);
 const ld = (k,fb) => { try{const v=localStorage.getItem(k);return v?JSON.parse(v):fb;}catch{return fb;} };
 const sv = (k,v)  => { try{localStorage.setItem(k,JSON.stringify(v));}catch{} };
+
+// ── RESET DE VERSÃO ───────────────────────────────────────────────────────────
+// Se DATA_VERSION mudou desde o último acesso, limpa tudo e recarrega com dados novos
+(function checkVersion(){
+  try{
+    const stored = localStorage.getItem("fl5_data_version");
+    if(stored !== DATA_VERSION){
+      // Guarda pedidos e tarefas se existirem (não perde dados operacionais)
+      const pedidos  = localStorage.getItem("fl5_pedidos");
+      const tarefas  = localStorage.getItem("fl5_tarefas");
+      const events   = localStorage.getItem("fl5_events");
+      const atas     = localStorage.getItem("fl5_atas");
+      const forn     = localStorage.getItem("fl5_forn");
+      // Limpa tudo
+      Object.keys(localStorage).filter(k=>k.startsWith("fl5_")).forEach(k=>localStorage.removeItem(k));
+      // Restaura dados operacionais
+      if(pedidos) localStorage.setItem("fl5_pedidos", pedidos);
+      if(tarefas) localStorage.setItem("fl5_tarefas", tarefas);
+      if(events)  localStorage.setItem("fl5_events",  events);
+      if(atas)    localStorage.setItem("fl5_atas",     atas);
+      if(forn)    localStorage.setItem("fl5_forn",     forn);
+      // Grava nova versão
+      localStorage.setItem("fl5_data_version", DATA_VERSION);
+    }
+  }catch{}
+})();
 
 // ── IA CALL ───────────────────────────────────────────────────────────────────
 async function callIA(messages, maxTokens=1000, system="Assistente FACTEN.") {
@@ -1143,7 +1250,14 @@ function ResetSenha({userId,users,onSave}){
   </>;
 }
 
-function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFornecedores,toast}){
+function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFornecedores,saveUser,removeUser,saveObra,removeObra,saveForn,removeForn,toast}){
+  // Use DB-aware functions when available, fallback to local setters
+  const doSaveUser  = saveUser  || (u=>setUsers(us=>us.find(x=>x.id===u.id)?us.map(x=>x.id===u.id?u:x):[...us,u]));
+  const doRemoveUser= removeUser|| (id=>setUsers(us=>us.filter(x=>x.id!==id)));
+  const doSaveObra  = saveObra  || (o=>setObras(os=>os.find(x=>x.id===o.id)?os.map(x=>x.id===o.id?o:x):[...os,o]));
+  const doRemoveObra= removeObra|| (id=>setObras(os=>os.filter(x=>x.id!==id)));
+  const doSaveForn  = saveForn  || (f=>setFornecedores(fs=>fs.find(x=>x.id===f.id)?fs.map(x=>x.id===f.id?f:x):[...fs,f]));
+  const doRemoveForn= removeForn|| (id=>setFornecedores(fs=>fs.filter(x=>x.id!==id)));
   const [tab,setTab]=useState("obras");
 
   // ── OBRAS ──
@@ -1156,8 +1270,9 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
     if(!oForm.code||!oForm.name){alert("Código e nome obrigatórios.");return;}
     const dup=obras.find(o=>o.code===oForm.code&&o.id!==oEdit);
     if(dup){alert("Código "+oForm.code+" já existe.");return;}
-    if(oEdit){setObras(o=>o.map(x=>x.id===oEdit?{...x,...oForm}:x));toast("Obra atualizada!");}
-    else{setObras(o=>[...o,{...oForm,id:Date.now()}]);toast("Obra adicionada!");}
+    const saved = oEdit ? {...oForm, id:oEdit} : {...oForm, id:Date.now()};
+    doSaveObra(saved);
+    toast(oEdit?"Obra atualizada!":"Obra adicionada!");
     setOEdit(null);setOForm(oBlank);
   }
 
@@ -1173,8 +1288,9 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
       const dup=fornecedores.find(f=>f.cnpj?.replace(/\D/g,"")===cnpjNum&&f.id!==fEdit);
       if(dup){alert("CNPJ já cadastrado para: "+dup.nome);return;}
     }
-    if(fEdit){setFornecedores(f=>f.map(x=>x.id===fEdit?{...x,...fForm}:x));toast("Fornecedor atualizado!");}
-    else{setFornecedores(f=>[...f,{...fForm,id:Date.now()}]);toast("Fornecedor adicionado!");}
+    const saved = fEdit ? {...fForm, id:fEdit} : {...fForm, id:Date.now()};
+    doSaveForn(saved);
+    toast(fEdit?"Fornecedor atualizado!":"Fornecedor adicionado!");
     setFEdit(null);setFForm(fBlank);
   }
 
@@ -1188,8 +1304,11 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
     const dup=users.find(u=>u.email?.toLowerCase()===uForm.email.toLowerCase()&&u.id!==uEdit);
     if(dup){alert("E-mail já cadastrado.");return;}
     const av=uForm.name.split(" ").map(n=>n[0]).slice(0,2).join("").toUpperCase();
-    if(uEdit){setUsers(u=>u.map(x=>x.id===uEdit?{...x,...uForm,avatar:av}:x));toast("Usuário atualizado!");}
-    else{setUsers(u=>[...u,{...uForm,id:Date.now(),avatar:av,senhaHash:""}]);toast("Usuário adicionado!");}
+    const saved = uEdit
+      ? {...uForm, id:uEdit, avatar:av}
+      : {...uForm, id:Date.now(), avatar:av, senhaHash:"", primeiroAcesso:true};
+    doSaveUser(saved);
+    toast(uEdit?"Usuário atualizado!":"Usuário adicionado! Senha inicial: facten2025");
     setUEdit(null);setUForm(uBlank);
   }
 
@@ -1238,7 +1357,7 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
               </div>
               <Btn size="sm" variant="secondary" onClick={()=>{setOEdit(o.id);setOForm({...o});}}>✏️</Btn>
               <button onClick={()=>setObras(os=>os.map(x=>x.id===o.id?{...x,active:!x.active}:x))} style={{padding:"4px 10px",borderRadius:6,border:"1.5px solid "+(o.active?G.gold:G.green),background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:o.active?G.goldDark:G.green}}>{o.active?"Pausar":"Ativar"}</button>
-              <ConfirmDel label="Excluir" onConfirm={()=>{setObras(os=>os.filter(x=>x.id!==o.id));toast("Obra excluída!");}}/>
+              <ConfirmDel label="Excluir" onConfirm={()=>{doRemoveObra(o.id);toast("Obra excluída!");}}/>
             </Card>;
           })}
         </div>
@@ -1314,7 +1433,7 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
               <Chip color={RCOL[u.role]||G.green} bg={(RCOL[u.role]||G.green)+"18"}>{ROLES[u.role]}</Chip>
               <Btn size="sm" variant="secondary" onClick={()=>{setUEdit(u.id);setUForm({...u,obras:u.obras||[]});}}>✏️</Btn>
               <ResetSenha userId={u.id} users={users} onSave={(id,hash)=>{setUsers(us=>us.map(x=>x.id===id?{...x,senhaHash:hash}:x));toast("Senha redefinida!");}}/>
-              <button onClick={()=>setUsers(us=>us.map(x=>x.id===u.id?{...x,active:!x.active}:x))} style={{padding:"4px 10px",borderRadius:6,border:"1.5px solid "+(u.active?G.red:G.green),background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:u.active?G.red:G.green}}>{u.active?"Desativar":"Ativar"}</button>
+              <button onClick={()=>doSaveUser({...u,active:!u.active})} style={{padding:"4px 10px",borderRadius:6,border:"1.5px solid "+(u.active?G.red:G.green),background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:u.active?G.red:G.green}}>{u.active?"Desativar":"Ativar"}</button>
             </Card>
           ))}
         </div>
@@ -1611,19 +1730,25 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
 
 // ── ROOT APP ──────────────────────────────────────────────────────────────────
 export default function App(){
-  const [users,        setUsers]        = useState(()=>ld(K.users,        USERS0));
-  const [obras,        setObras]        = useState(()=>ld(K.obras,        []));
-  const [fornecedores, setFornecedores] = useState(()=>ld(K.fornecedores, []));
-  const [pedidos,      setPedidos]      = useState(()=>ld(K.pedidos,      []));
-  const [tarefas,      setTarefas]      = useState(()=>ld(K.tarefas,      []));
-  const [events,       setEvents]       = useState(()=>ld(K.events,       []));
-  const [atas,         setAtas]         = useState(()=>ld(K.atas,         []));
+  const [users,        setUsers]        = useState(USERS0);      // loaded from Supabase
+  const [obras,        setObras]        = useState([]);           // loaded from Supabase
+  const [fornecedores, setFornecedores] = useState([]);           // loaded from Supabase
+  const [pedidos,      setPedidos]      = useState(()=>ld(K.pedidos, []));
+  const [tarefas,      setTarefas]      = useState(()=>ld(K.tarefas, []));
+  const [events,       setEvents]       = useState(()=>ld(K.events,  []));
+  const [atas,         setAtas]         = useState(()=>ld(K.atas,    []));
+  const [dbLoading,    setDbLoading]    = useState(true);
+  const [dbError,      setDbError]      = useState("");
 
   const [loggedIn,setLoggedIn] = useState(()=>ld(K.li, false));
   const [cu,setCu]             = useState(()=>ld(K.cu, USERS0[0]));
   const [loginEmail,setLoginEmail] = useState("");
   const [loginPass, setLoginPass]  = useState("");
   const [loginErr,  setLoginErr]   = useState("");
+  const [showTrocaSenha,setShowTrocaSenha] = useState(false);
+  const [trocaNova,setTrocaNova]   = useState("");
+  const [trocaConf,setTrocaConf]   = useState("");
+  const [trocaErr,setTrocaErr]     = useState("");
 
   const [page,    setPage]    = useState("dashboard");
   const [toastMsg,setToastMsg]= useState("");
@@ -1637,16 +1762,41 @@ export default function App(){
   const [notifOpen,setNotifOpen] = useState(false);
   const [notifsLidas,setNotifsLidas] = useState(()=>ld("fl5_notifs_lidas",[]));
 
-  useEffect(()=>sv(K.users,        users),        [users]);
-  useEffect(()=>sv(K.obras,        obras),        [obras]);
-  useEffect(()=>sv(K.fornecedores, fornecedores), [fornecedores]);
-  useEffect(()=>sv(K.pedidos,      pedidos),      [pedidos]);
-  useEffect(()=>sv(K.tarefas,      tarefas),      [tarefas]);
-  useEffect(()=>sv(K.events,       events),       [events]);
-  useEffect(()=>sv(K.atas,         atas),         [atas]);
-  useEffect(()=>sv(K.li,           loggedIn),     [loggedIn]);
+  // Pedidos/tarefas/events/atas → localStorage (fast)
+  useEffect(()=>sv(K.pedidos,  pedidos),  [pedidos]);
+  useEffect(()=>sv(K.tarefas,  tarefas),  [tarefas]);
+  useEffect(()=>sv(K.events,   events),   [events]);
+  useEffect(()=>sv(K.atas,     atas),     [atas]);
+  useEffect(()=>sv(K.li,       loggedIn), [loggedIn]);
   useEffect(()=>sv("fl5_notifs_lidas", notifsLidas), [notifsLidas]);
-  useEffect(()=>sv(K.cu,           cu),           [cu]);
+  useEffect(()=>sv(K.cu,       cu),       [cu]);
+
+  // ── LOAD FROM SUPABASE on mount ────────────────────────────────────────
+  useEffect(()=>{
+    async function loadFromDb(){
+      setDbLoading(true);
+      try{
+        const [dbU,dbO,dbF] = await Promise.all([dbGet("usuarios"),dbGet("obras"),dbGet("fornecedores")]);
+        if(dbU.length>0){
+          setUsers(dbU.map(userFromDb));
+        } else {
+          // Primeiro deploy: seed com USERS0
+          await Promise.all(USERS0.map(u=>dbUpsert("usuarios",userToDb(u))));
+          setUsers(USERS0);
+        }
+        setObras(dbO.map(obraFromDb));
+        setFornecedores(dbF.map(fornFromDb));
+      }catch(e){
+        console.warn("DB load failed, using local:", e.message);
+        setDbError("Modo offline — dados locais");
+        setUsers(ld(K.users, USERS0));
+        setObras(ld(K.obras, []));
+        setFornecedores(ld(K.fornecedores, []));
+      }
+      setDbLoading(false);
+    }
+    loadFromDb();
+  },[]);
 
   const toast = m => setToastMsg(m);
 
@@ -1660,13 +1810,49 @@ export default function App(){
     const u=users.find(x=>x.email?.toLowerCase()===loginEmail.toLowerCase()&&x.active);
     if(!u){setLoginErr("E-mail não encontrado.");return;}
     const h=await hashPass(loginPass);
-    if(!(u.senhaHash?u.senhaHash===h:loginPass==="facten2025")){setLoginErr("Senha incorreta.");return;}
-    setCu(u);setLoggedIn(true);setLoginErr("");
+    const senhaOk = u.senhaHash ? u.senhaHash===h : loginPass==="facten2025";
+    if(!senhaOk){setLoginErr("Senha incorreta.");return;}
+    setCu(u);
+    // Se primeiro acesso (sem senha definida ou flag primeiroAcesso) → obriga troca
+    if(u.primeiroAcesso || !u.senhaHash){
+      setShowTrocaSenha(true);
+    } else {
+      setLoggedIn(true);
+    }
+    setLoginErr("");
+  }
+
+  async function salvarNovaSenha(){
+    if(trocaNova.length<6){setTrocaErr("Mínimo 6 caracteres.");return;}
+    if(trocaNova===loginPass||trocaNova==="facten2025"){setTrocaErr("Escolha uma senha diferente da senha padrão.");return;}
+    if(trocaNova!==trocaConf){setTrocaErr("Senhas não coincidem.");return;}
+    const h=await hashPass(trocaNova);
+    const updated={...cu, senhaHash:h, primeiroAcesso:false};
+    setUsers(u=>u.map(x=>x.id===cu.id?updated:x));
+    dbUpsert("usuarios", userToDb(updated)); // sync to DB
+    setCu(updated);
+    setLoggedIn(true);
+    setShowTrocaSenha(false);
+    setTrocaNova("");setTrocaConf("");setTrocaErr("");
+    setLoginPass("");
   }
 
   function handleAutoCreate(tipo,item){
-    if(tipo==="obra"){ setObras(o=>{if(o.find(x=>x.code===item.code))return o;return[...o,item];});toast("🏗️ Obra "+item.code+" criada via PDF!"); }
-    if(tipo==="fornecedor"){ setFornecedores(f=>{const cnpj=item.cnpj?.replace(/\D/g,"");if(cnpj&&f.find(x=>x.cnpj?.replace(/\D/g,"")===cnpj))return f;if(f.find(x=>x.nome.toLowerCase()===item.nome.toLowerCase()))return f;return[...f,item];});toast("🏢 Fornecedor '"+item.nome+"' criado via PDF!"); }
+    if(tipo==="obra"){
+      setObras(o=>{if(o.find(x=>x.code===item.code))return o;return[...o,item];});
+      dbUpsert("obras", obraToDb(item));
+      toast("🏗️ Obra "+item.code+" criada via PDF!");
+    }
+    if(tipo==="fornecedor"){
+      setFornecedores(f=>{
+        const cnpj=item.cnpj?.replace(/\D/g,"");
+        if(cnpj&&f.find(x=>x.cnpj?.replace(/\D/g,"")===cnpj))return f;
+        if(f.find(x=>x.nome.toLowerCase()===item.nome.toLowerCase()))return f;
+        return[...f,item];
+      });
+      dbUpsert("fornecedores", fornToDb(item));
+      toast("🏢 Fornecedor '"+item.nome+"' criado via PDF!");
+    }
   }
 
   function savePedido(form){
@@ -1699,6 +1885,32 @@ export default function App(){
       return{...x,status};
     }));
     if(status!=="aguardando")toast("Status → "+STATUS[status]?.label);
+  }
+
+  // ── DB-AWARE SETTERS ──────────────────────────────────────────────────────
+  async function saveUser(u){
+    setUsers(us=>us.find(x=>x.id===u.id)?us.map(x=>x.id===u.id?u:x):[...us,u]);
+    await dbUpsert("usuarios", userToDb(u));
+  }
+  async function removeUser(id){
+    setUsers(us=>us.filter(x=>x.id!==id));
+    await dbDelete("usuarios", id);
+  }
+  async function saveObra(o){
+    setObras(os=>os.find(x=>x.id===o.id)?os.map(x=>x.id===o.id?o:x):[...os,o]);
+    await dbUpsert("obras", obraToDb(o));
+  }
+  async function removeObra(id){
+    setObras(os=>os.filter(x=>x.id!==id));
+    await dbDelete("obras", id);
+  }
+  async function saveForn(f){
+    setFornecedores(fs=>fs.find(x=>x.id===f.id)?fs.map(x=>x.id===f.id?f:x):[...fs,f]);
+    await dbUpsert("fornecedores", fornToDb(f));
+  }
+  async function removeForn(id){
+    setFornecedores(fs=>fs.filter(x=>x.id!==id));
+    await dbDelete("fornecedores", id);
   }
 
   function deletePedido(id){setPedidos(p=>p.filter(x=>x.id!==id));setTarefas(ts=>ts.filter(t=>t.pedidoId!==id));}
@@ -1737,6 +1949,41 @@ export default function App(){
     {id:"pedidos",  icon:"📋",label:"Pedidos",   badge:pedidos.filter(p=>isAtrasado(p)).length||null,badgeColor:G.orange},
     {id:"tarefas",  icon:"✅",label:"Tarefas",   badge:tarefas.filter(t=>t.status==="aberta").length||null,badgeColor:G.red},
   ];
+
+  // ── TELA DE TROCA DE SENHA (primeiro acesso) ──
+  if(dbLoading)return(
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#2E7D32 0%,#1A3A1A 100%)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Inter,sans-serif",flexDirection:"column",gap:16}}>
+      <div style={{fontSize:52,animation:"spin 1s linear infinite"}}>⟳</div>
+      <div style={{color:"#fff",fontSize:16,fontWeight:700}}>Carregando dados…</div>
+      {dbError&&<div style={{color:"#FFD54F",fontSize:13}}>{dbError}</div>}
+      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+
+  if(showTrocaSenha)return(
+    <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#2E7D32 0%,#1A3A1A 100%)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Inter,sans-serif",padding:16}}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');@keyframes su{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
+      <div style={{background:"#fff",borderRadius:20,padding:"44px 40px",width:"100%",maxWidth:420,boxShadow:"0 32px 80px rgba(0,0,0,.32)",animation:"su .3s ease"}}>
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontSize:40,marginBottom:8}}>🔐</div>
+          <div style={{fontSize:20,fontWeight:800,color:G.text}}>Bem-vindo, {cu.name.split(" ")[0]}!</div>
+          <div style={{fontSize:13,color:G.muted,marginTop:6}}>Este é seu primeiro acesso. Defina uma senha pessoal para continuar.</div>
+        </div>
+        <div style={{background:"#FFF8E1",border:"1px solid #F4C430",borderRadius:8,padding:"10px 14px",marginBottom:20,fontSize:12,color:"#5D4037"}}>
+          ⚠️ A senha padrão <strong>facten2025</strong> não pode ser usada. Escolha uma senha segura com pelo menos 6 caracteres.
+        </div>
+        <Fld label="Nova Senha (mínimo 6 caracteres)">
+          <Inp type="password" placeholder="Digite sua nova senha" value={trocaNova} onChange={e=>setTrocaNova(e.target.value)} onKeyDown={e=>e.key==="Enter"&&salvarNovaSenha()}/>
+        </Fld>
+        <Fld label="Confirmar Nova Senha">
+          <Inp type="password" placeholder="Repita a senha" value={trocaConf} onChange={e=>setTrocaConf(e.target.value)} onKeyDown={e=>e.key==="Enter"&&salvarNovaSenha()}/>
+        </Fld>
+        {trocaErr&&<div style={{color:G.red,fontSize:13,marginBottom:10,textAlign:"center"}}>{trocaErr}</div>}
+        <button onClick={salvarNovaSenha} style={{width:"100%",padding:"13px 0",borderRadius:10,border:"none",background:G.green,color:"#fff",fontSize:15,fontWeight:800,cursor:"pointer",marginTop:4}}>Salvar Senha e Entrar</button>
+        <button onClick={()=>{setShowTrocaSenha(false);setLoggedIn(false);}} style={{width:"100%",padding:"10px 0",borderRadius:10,border:"none",background:"none",color:G.muted,fontSize:13,cursor:"pointer",marginTop:8}}>← Voltar ao login</button>
+      </div>
+    </div>
+  );
 
   if(!loggedIn)return(
     <div style={{minHeight:"100vh",background:"linear-gradient(135deg,#2E7D32 0%,#1A3A1A 100%)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Inter,sans-serif",padding:16}}>
@@ -1872,6 +2119,9 @@ export default function App(){
         open={showCfg} onClose={()=>setShowCfg(false)}
         users={users} obras={obras} fornecedores={fornecedores}
         setUsers={setUsers} setObras={setObras} setFornecedores={setFornecedores}
+        saveUser={saveUser} removeUser={removeUser}
+        saveObra={saveObra} removeObra={removeObra}
+        saveForn={saveForn} removeForn={removeForn}
         toast={toast}/>
 
       <Toast msg={toastMsg} onDone={()=>setToastMsg("")}/>

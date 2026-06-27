@@ -2606,27 +2606,29 @@ export default function App(){
     const hoje = new Date(); hoje.setHours(0,0,0,0);
     const em7  = new Date(hoje); em7.setDate(hoje.getDate()+7);
 
-    // Alerta 7 dias: verifica cada item com data de previsão
+    // Alerta 7 dias: atualiza o TÍTULO da tarefa de acompanhamento existente
+    // NÃO cria nova tarefa — apenas sinaliza urgência na tarefa já existente
     pedidos.filter(p=>!["cancelado","entregue"].includes(p.status)).forEach(p=>{
-      (p.itens||[]).forEach(it=>{
-        const dt = it.dataPrevisao||p.previsaoEntrega;
-        if(!dt) return;
-        const dtObj = new Date(dt+"T00:00:00");
-        if(dtObj>hoje && dtObj<=em7 && it.status!=="entregue"){
-          const key = "alerta7_"+p.id+"_"+(it.id||dt);
-          const jaExiste = tarefas.find(t=>t.id===key);
-          if(!jaExiste){
-            setTarefas(ts=>[...ts,{
-              id:key, categoria:"acompanhamento",
-              title:"⚠️ Entrega em "+Math.round((dtObj-hoje)/(864e5))+"d — Ped. "+p.numero+" ("+p.fornecedor+")",
-              description:"Item: "+it.descricao+". Previsão: "+fmtD(dt)+". Confirme com o fornecedor.",
-              status:"aberta", pedidoId:p.id, obra:p.obra,
-              assignedTo:Number(p.comprador), due:dt,
-              anexos:[], messages:[], createdBy:"Sistema", createdAt:nowTs()
-            }]);
-          }
+      const dtRef = p.previsaoEntrega || (p.itens||[]).map(i=>i.dataPrevisao).filter(Boolean).sort()[0];
+      if(!dtRef) return;
+      const dtObj  = new Date(dtRef+"T00:00:00");
+      const diffDias = Math.round((dtObj-hoje)/(864e5));
+      if(diffDias>=0 && diffDias<=7){
+        // Encontra a tarefa de acompanhamento inicial deste pedido (sem "parcial")
+        const tarefaAcomp = tarefas.find(t=>
+          t.pedidoId===p.id &&
+          t.categoria==="acompanhamento" &&
+          !t.title.toLowerCase().includes("parcial") &&
+          t.status!=="resolvida"
+        );
+        if(tarefaAcomp && !tarefaAcomp.title.startsWith("⚠️")){
+          // Adiciona prefixo de urgência ao título sem criar nova tarefa
+          setTarefas(ts=>ts.map(t=>t.id===tarefaAcomp.id
+            ? {...t, title:"⚠️ Entrega em "+diffDias+"d — Ped. "+p.numero+" ("+p.fornecedor+")", due:dtRef}
+            : t
+          ));
         }
-      });
+      }
     });
 
     // Só cria tarefa de atraso se pedido NÃO foi entregue/cancelado
@@ -2636,7 +2638,20 @@ export default function App(){
       !tarefas.find(t=>t.pedidoId===p.id&&t.categoria==="atraso"&&t.status!=="resolvida")
     ).map(p=>({id:uid(),categoria:"atraso",title:"Entrega atrasada — Pedido "+p.numero+" ("+p.fornecedor+")",description:"Previsão: "+fmtD(p.previsaoEntrega)+". Contatar fornecedor.",status:"aberta",pedidoId:p.id,obra:p.obra,assignedTo:Number(p.comprador),due:"",messages:[],createdBy:"Sistema",createdAt:nowTs()}));
     if(novos.length>0) setTarefas(ts=>[...novos.filter(n=>!ts.find(t=>t.pedidoId===n.pedidoId&&t.categoria==="atraso"&&t.status!=="resolvida")),...ts]);
-    // Fecha tarefas de atraso de pedidos já entregues
+    // Fecha tarefas de atraso quando pedido não está mais atrasado (reprogramado ou entregue)
+    setTarefas(ts=>ts.map(t=>{
+      if(t.categoria==="atraso" && t.status!=="resolvida"){
+        const p = pedidos.find(x=>x.id===t.pedidoId);
+        if(!p) return t;
+        // Fecha se pedido foi entregue, cancelado ou não está mais atrasado
+        if(["entregue","cancelado"].includes(p.status) || !isAtrasado(p)){
+          return{...t, status:"resolvida", resolvidaEm:nowTs(), resolvidaPor:"Sistema (pedido não está mais atrasado)"};
+        }
+      }
+      return t;
+    }));
+
+    // Fecha tarefas de acompanhamento de pedidos já entregues
     setTarefas(ts=>ts.map(t=>{
       if(t.categoria==="atraso" && t.status!=="resolvida"){
         const p = pedidos.find(x=>x.id===t.pedidoId);

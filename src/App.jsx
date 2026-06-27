@@ -841,7 +841,15 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
   const chatRef  = useRef(null);
   const fileRef  = useRef(null);
 
-  useEffect(()=>{ if(open) { setTab("insumos"); setConfirmAcao(null); setAiSuggest(""); setShowRespostas(false); } },[open]);
+  useEffect(()=>{
+    if(open){
+      // Almoxarife começa na aba de insumos; comprador começa em insumos também
+      setTab("insumos");
+      setConfirmAcao(null);
+      setAiSuggest("");
+      setShowRespostas(false);
+    }
+  },[open]);
   useEffect(()=>{ if(chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; },[pedido?.messages?.length,tab]);
 
   if(!pedido) return null;
@@ -1221,7 +1229,13 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
       {/* TABS */}
       <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
         <button style={tabS("insumos")} onClick={()=>setTab("insumos")}>📦 Insumos ({nEnt}/{nTot})</button>
-        <button style={tabS("chat")}    onClick={()=>setTab("chat")}>💬 Chat {pedido.messages?.length>0&&"("+pedido.messages.length+")"}</button>
+        <button style={tabS("chat")} onClick={()=>setTab("chat")}>
+          💬 {isAlmox&&!isComp?"Conversar com Comprador":"Chat"}
+          {(pedido.messages||[]).filter(m=>m.type==="chat").length>0&&
+            <span style={{marginLeft:4,background:G.blue,color:"#fff",borderRadius:10,fontSize:9,padding:"1px 5px",fontWeight:800}}>
+              {(pedido.messages||[]).filter(m=>m.type==="chat").length}
+            </span>}
+        </button>
         <button style={tabS("tarefas")} onClick={()=>setTab("tarefas")}>📋 Tarefas ({myTarefas.filter(t=>t.status!=="resolvida").length} abertas)</button>
       </div>
 
@@ -1320,9 +1334,32 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
       {/* ── TAB CHAT ── */}
       {tab==="chat"&&(
         <div>
-          <div style={{background:"#E3F2FD",border:"1px solid #90CAF9",borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:12,color:"#1565C0"}}>
-            💬 Canal direto almoxarife ↔ comprador.{!atrasado&&isAlmox?" A IA responde em nome do comprador quando o pedido está dentro do prazo.":""}
+          <div style={{background:"#E3F2FD",border:"1px solid #90CAF9",borderRadius:8,padding:"10px 14px",marginBottom:10}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#1565C0",marginBottom:4}}>
+              💬 Canal direto — {isAlmox&&!isComp?"Almoxarife → Comprador":"Comprador → Almoxarife"}
+            </div>
+            <div style={{fontSize:11,color:"#1976D2",lineHeight:1.5}}>
+              {isAlmox&&!isComp
+                ? "Use este canal para enviar mensagens ao comprador sobre este pedido. Perguntas sobre prazo, boleto ou status são respondidas automaticamente quando o pedido está dentro do prazo."
+                : "Mensagens do almoxarife sobre este pedido. Responda aqui ou use as tarefas na aba ao lado."}
+            </div>
           </div>
+          {/* Almoxarife com chat vazio: botão destacado para iniciar */}
+          {isAlmox&&!isComp&&!(pedido.messages||[]).filter(m=>m.type==="chat"||m.type==="sistema").length&&(
+            <div style={{background:"#F3E5F5",border:"1px solid #CE93D8",borderRadius:10,padding:"16px 20px",textAlign:"center",marginBottom:10}}>
+              <div style={{fontSize:20,marginBottom:6}}>💬</div>
+              <div style={{fontSize:13,fontWeight:700,color:G.purple,marginBottom:4}}>Iniciar conversa com o comprador</div>
+              <div style={{fontSize:11,color:G.muted,marginBottom:12}}>Tire dúvidas sobre prazo de entrega, boleto, status do pedido e mais.</div>
+              <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+                {["Quando o material chega?","Pode me enviar o boleto?","Qual o status da entrega?","Houve algum problema com o material."].map(sugestao=>(
+                  <button key={sugestao} onClick={()=>setMsgTxt(sugestao)}
+                    style={{padding:"6px 14px",borderRadius:20,border:"1.5px solid "+G.purple,background:"#fff",cursor:"pointer",fontSize:11,fontWeight:600,color:G.purple}}>
+                    {sugestao}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {/* mensagens */}
           <div ref={chatRef} style={{background:G.alt,borderRadius:10,padding:12,minHeight:180,maxHeight:280,overflowY:"auto",display:"flex",flexDirection:"column",gap:8,marginBottom:8}}>
             {!(pedido.messages?.length)&&<div style={{color:G.light,fontSize:13,textAlign:"center",marginTop:50}}>Sem mensagens ainda.</div>}
@@ -1894,7 +1931,18 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
   const [showNew,setShowNew]=useState(false);
   const [nf,setNf]=useState({title:"",description:"",categoria:"acompanhamento",assignedTo:"",due:"",obra:""});
 
+  const isAlmoxU = ["almoxarife","aux_almoxarife"].includes(cu.role);
+  const isCompU  = ["comprador"].includes(cu.role);
+  const isCoordU = cu.role==="coordenador";
+
   const filtered=tarefas.filter(t=>{
+    // Filtro por papel:
+    // Almoxarife → só vê tarefas atribuídas a ele (geradas pelo fluxo boleto/parcial)
+    // Comprador  → vê tarefas atribuídas a ele
+    // Coordenador → vê tudo
+    if(isAlmoxU && String(t.assignedTo)!==String(cu.id)) return false;
+    if(isCompU  && String(t.assignedTo)!==String(cu.id)) return false;
+    // filtros de categoria e status
     if(filterCat!=="all"&&t.categoria!==filterCat)return false;
     if(filterStat==="abertas"&&t.status==="resolvida")return false;
     if(filterStat==="resolvidas"&&t.status!=="resolvida")return false;
@@ -2242,13 +2290,41 @@ export default function App(){
     if(p.status==="aguardando"&&pertComp) notifs.push({id:"bol"+p.id,icon:"🧾",text:"Boleto solicitado — Ped. "+p.numero,pedidoId:p.id,color:G.purple});
     if(p.status==="parcial"&&pertComp) notifs.push({id:"par"+p.id,icon:"📦",text:"Entrega parcial — Ped. "+p.numero,pedidoId:p.id,color:G.blue});
     if(p.status==="entregue"&&pertComp) notifs.push({id:"ent"+p.id,icon:"✅",text:"Pedido "+p.numero+" entregue!",pedidoId:p.id,color:G.green});
+    // Almoxarife recebe notificação quando comprador responde no chat
+    if(pertAlmox){
+      const msgs = (p.messages||[]).filter(m=>m.type==="chat"&&String(m.userId)!==String(cu.id));
+      if(msgs.length>0){
+        const ultima = msgs[msgs.length-1];
+        notifs.push({id:"chat"+p.id,icon:"💬",text:"Comprador respondeu no Pedido "+p.numero+": "+ultima.text.slice(0,40),pedidoId:p.id,color:G.blue});
+      }
+    }
+    // Comprador recebe notificação quando almoxarife inicia conversa
+    if(pertComp){
+      const msgs = (p.messages||[]).filter(m=>m.type==="chat"&&String(m.userId)!==String(cu.id));
+      if(msgs.length>0){
+        const ultima = msgs[msgs.length-1];
+        notifs.push({id:"almchat"+p.id,icon:"💬",text:"Almoxarife enviou mensagem no Pedido "+p.numero,pedidoId:p.id,color:G.teal});
+      }
+    }
   });
+  // Tarefas atribuídas ao usuário atual que foram resolvidas
   tarefas.filter(t=>t.status==="resolvida"&&String(t.assignedTo)===String(cu.id)).slice(0,3).forEach(t=>{
     notifs.push({id:"tsk"+t.id,icon:"🔔",text:"Tarefa concluída: "+t.title.slice(0,40),color:G.green});
   });
+  // Tarefas de boleto em andamento — almoxarife deve baixar o boleto
+  tarefas.filter(t=>t.categoria==="boleto"&&t.status==="andamento"&&String(t.assignedTo)===String(cu.id)).forEach(t=>{
+    notifs.push({id:"bolk"+t.id,icon:"📥",text:"Boleto disponível para baixar — "+t.title.slice(0,40),pedidoId:t.pedidoId,color:G.purple});
+  });
+
+  const isAlmoxCu = ["almoxarife","aux_almoxarife"].includes(cu.role);
 
   const filteredP=pedidos.filter(p=>{
     const o=obras.find(x=>String(x.id)===String(p.obra));
+    // Almoxarife só vê pedidos das obras vinculadas a ele
+    if(isAlmoxCu){
+      const obraDoAlmox = obras.find(ob=>String(ob.id)===String(p.obra)&&ob.almoxarife===cu.id);
+      if(!obraDoAlmox) return false;
+    }
     return(fStatus==="all"||p.status===fStatus)&&(fObra==="all"||String(p.obra)===fObra)&&(!search||[p.numero,p.fornecedor,o?.name,o?.code].some(v=>v?.toLowerCase().includes(search.toLowerCase())));
   });
 
@@ -2258,10 +2334,15 @@ export default function App(){
   },[search]);
 
   const isComp=["comprador","coordenador"].includes(cu.role);
+  // Badge de tarefas: só mostra as do usuário atual
+  const minhasTarefasAbertas = tarefas.filter(t=>
+    String(t.assignedTo)===String(cu.id) && t.status==="aberta"
+  ).length;
+
   const NAV=[
     {id:"dashboard",icon:"📊",label:"Dashboard"},
     {id:"pedidos",  icon:"📋",label:"Pedidos",   badge:pedidos.filter(p=>isAtrasado(p)).length||null,badgeColor:G.orange},
-    {id:"tarefas",  icon:"✅",label:"Tarefas",   badge:tarefas.filter(t=>t.status==="aberta").length||null,badgeColor:G.red},
+    {id:"tarefas",  icon:"✅",label:"Tarefas",   badge:minhasTarefasAbertas||null,badgeColor:G.red},
   ];
 
   // ── TELA DE TROCA DE SENHA (primeiro acesso) ──

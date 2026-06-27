@@ -2284,7 +2284,7 @@ export default function App(){
   const notifs=[];
   pedidos.forEach(p=>{
     const obra=obras.find(o=>String(o.id)===String(p.obra));
-    const pertAlmox=["almoxarife","aux_almoxarife"].includes(cu.role)&&obra?.almoxarife===cu.id;
+    const pertAlmox=["almoxarife","aux_almoxarife"].includes(cu.role)&&String(obra?.almoxarife)===String(cu.id);
     const pertComp=["comprador","coordenador"].includes(cu.role)&&String(p.comprador)===String(cu.id);
     if(isAtrasado(p)&&(pertComp||pertAlmox)) notifs.push({id:"atr"+p.id,icon:"⚠️",text:"Pedido "+p.numero+" atrasado",pedidoId:p.id,color:G.orange});
     if(p.status==="aguardando"&&pertComp) notifs.push({id:"bol"+p.id,icon:"🧾",text:"Boleto solicitado — Ped. "+p.numero,pedidoId:p.id,color:G.purple});
@@ -2320,9 +2320,13 @@ export default function App(){
 
   const filteredP=pedidos.filter(p=>{
     const o=obras.find(x=>String(x.id)===String(p.obra));
-    // Almoxarife só vê pedidos das obras vinculadas a ele
+    // Almoxarife vê pedidos das obras onde ele é o almoxarife responsável
+    // Usa String() nos dois lados para evitar mismatch de tipo
     if(isAlmoxCu){
-      const obraDoAlmox = obras.find(ob=>String(ob.id)===String(p.obra)&&ob.almoxarife===cu.id);
+      const obraDoAlmox = obras.find(ob=>
+        String(ob.id)===String(p.obra) &&
+        String(ob.almoxarife)===String(cu.id)
+      );
       if(!obraDoAlmox) return false;
     }
     return(fStatus==="all"||p.status===fStatus)&&(fObra==="all"||String(p.obra)===fObra)&&(!search||[p.numero,p.fornecedor,o?.name,o?.code].some(v=>v?.toLowerCase().includes(search.toLowerCase())));

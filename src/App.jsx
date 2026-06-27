@@ -23,11 +23,14 @@ async function dbUpsert(table, row) {
   if(!sb) return null;
   try {
     const { data, error } = await sb.from(table).upsert(row, {onConflict:"id"}).select();
-    if(error) throw error;
+    if(error){
+      console.error("Supabase upsert error:", table, JSON.stringify(error));
+      throw new Error(error.message || JSON.stringify(error));
+    }
     return data?.[0];
   } catch(e) {
-    console.warn("Supabase dbUpsert error:", table, e.message);
-    return null;
+    console.error("Supabase dbUpsert failed:", table, e.message);
+    throw e; // propagate so callers can show error
   }
 }
 async function dbDelete(table, id) {
@@ -1270,9 +1273,10 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
     if(!oForm.code||!oForm.name){alert("Código e nome obrigatórios.");return;}
     const dup=obras.find(o=>o.code===oForm.code&&o.id!==oEdit);
     if(dup){alert("Código "+oForm.code+" já existe.");return;}
-    const saved = oEdit ? {...oForm, id:oEdit} : {...oForm, id:Date.now()};
-    doSaveObra(saved);
-    toast(oEdit?"Obra atualizada!":"Obra adicionada!");
+    const newId = oEdit ? oEdit : (obras.length>0 ? Math.max(...obras.map(x=>Number(x.id)||0))+1 : 1);
+    const saved = {...oForm, id:newId};
+    doSaveObra(saved).catch(e=>toast("⚠️ Erro ao salvar obra: "+e.message));
+    if(!oEdit) toast("Salvando obra…");
     setOEdit(null);setOForm(oBlank);
   }
 
@@ -1288,9 +1292,10 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
       const dup=fornecedores.find(f=>f.cnpj?.replace(/\D/g,"")===cnpjNum&&f.id!==fEdit);
       if(dup){alert("CNPJ já cadastrado para: "+dup.nome);return;}
     }
-    const saved = fEdit ? {...fForm, id:fEdit} : {...fForm, id:Date.now()};
-    doSaveForn(saved);
-    toast(fEdit?"Fornecedor atualizado!":"Fornecedor adicionado!");
+    const newId = fEdit ? fEdit : (fornecedores.length>0 ? Math.max(...fornecedores.map(x=>Number(x.id)||0))+1 : 1);
+    const saved = {...fForm, id:newId};
+    doSaveForn(saved).catch(e=>toast("⚠️ Erro ao salvar fornecedor: "+e.message));
+    if(!fEdit) toast("Salvando fornecedor…");
     setFEdit(null);setFForm(fBlank);
   }
 
@@ -1304,11 +1309,13 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
     const dup=users.find(u=>u.email?.toLowerCase()===uForm.email.toLowerCase()&&u.id!==uEdit);
     if(dup){alert("E-mail já cadastrado.");return;}
     const av=uForm.name.split(" ").map(n=>n[0]).slice(0,2).join("").toUpperCase();
-    const saved = uEdit
-      ? {...uForm, id:uEdit, avatar:av}
-      : {...uForm, id:Date.now(), avatar:av, senhaHash:"", primeiroAcesso:true};
-    doSaveUser(saved);
-    toast(uEdit?"Usuário atualizado!":"Usuário adicionado! Senha inicial: facten2025");
+    const newId = uEdit ? uEdit : (users.length>0 ? Math.max(...users.map(x=>Number(x.id)||0))+1 : 1);
+    const saved = {...uForm, id:newId, avatar:av,
+      senhaHash: uEdit ? (uForm.senhaHash||"") : "",
+      primeiroAcesso: uEdit ? (uForm.primeiroAcesso!==false) : true
+    };
+    doSaveUser(saved).catch(e=>toast("⚠️ Erro ao salvar: "+e.message));
+    if(!uEdit) toast("Salvando usuário…");
     setUEdit(null);setUForm(uBlank);
   }
 
@@ -1433,7 +1440,7 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
               <Chip color={RCOL[u.role]||G.green} bg={(RCOL[u.role]||G.green)+"18"}>{ROLES[u.role]}</Chip>
               <Btn size="sm" variant="secondary" onClick={()=>{setUEdit(u.id);setUForm({...u,obras:u.obras||[]});}}>✏️</Btn>
               <ResetSenha userId={u.id} users={users} onSave={(id,hash)=>{setUsers(us=>us.map(x=>x.id===id?{...x,senhaHash:hash}:x));toast("Senha redefinida!");}}/>
-              <button onClick={()=>doSaveUser({...u,active:!u.active})} style={{padding:"4px 10px",borderRadius:6,border:"1.5px solid "+(u.active?G.red:G.green),background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:u.active?G.red:G.green}}>{u.active?"Desativar":"Ativar"}</button>
+              <button onClick={()=>doSaveUser({...u,active:!u.active}).then(()=>toast(u.active?"Usuário desativado!":"Usuário ativado!")).catch(e=>toast("⚠️ Erro: "+e.message))} style={{padding:"4px 10px",borderRadius:6,border:"1.5px solid "+(u.active?G.red:G.green),background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:u.active?G.red:G.green}}>{u.active?"Desativar":"Ativar"}</button>
             </Card>
           ))}
         </div>
@@ -1888,29 +1895,42 @@ export default function App(){
   }
 
   // ── DB-AWARE SETTERS ──────────────────────────────────────────────────────
+  // IDs: use sequential small int to avoid bigint overflow in Supabase
+  function nextId(list){ return list.length>0 ? Math.max(...list.map(x=>Number(x.id)||0))+1 : 1; }
+
   async function saveUser(u){
-    setUsers(us=>us.find(x=>x.id===u.id)?us.map(x=>x.id===u.id?u:x):[...us,u]);
-    await dbUpsert("usuarios", userToDb(u));
+    // Ensure ID is a small integer (Supabase bigint)
+    const row = {...u, id: Number(u.id)};
+    setUsers(us=>us.find(x=>x.id===row.id)?us.map(x=>x.id===row.id?row:x):[...us,row]);
+    const result = await dbUpsert("usuarios", userToDb(row));
+    if(!result) toast("⚠️ Usuário salvo localmente — verifique conexão com banco.");
+    else toast("✅ Usuário salvo no banco!");
   }
   async function removeUser(id){
     setUsers(us=>us.filter(x=>x.id!==id));
-    await dbDelete("usuarios", id);
+    await dbDelete("usuarios", Number(id));
   }
   async function saveObra(o){
-    setObras(os=>os.find(x=>x.id===o.id)?os.map(x=>x.id===o.id?o:x):[...os,o]);
-    await dbUpsert("obras", obraToDb(o));
+    const row = {...o, id: Number(o.id)};
+    setObras(os=>os.find(x=>x.id===row.id)?os.map(x=>x.id===row.id?row:x):[...os,row]);
+    const result = await dbUpsert("obras", obraToDb(row));
+    if(!result) toast("⚠️ Obra salva localmente — verifique conexão.");
+    else toast("✅ Obra salva no banco!");
   }
   async function removeObra(id){
     setObras(os=>os.filter(x=>x.id!==id));
-    await dbDelete("obras", id);
+    await dbDelete("obras", Number(id));
   }
   async function saveForn(f){
-    setFornecedores(fs=>fs.find(x=>x.id===f.id)?fs.map(x=>x.id===f.id?f:x):[...fs,f]);
-    await dbUpsert("fornecedores", fornToDb(f));
+    const row = {...f, id: Number(f.id)};
+    setFornecedores(fs=>fs.find(x=>x.id===row.id)?fs.map(x=>x.id===row.id?row:x):[...fs,row]);
+    const result = await dbUpsert("fornecedores", fornToDb(row));
+    if(!result) toast("⚠️ Fornecedor salvo localmente — verifique conexão.");
+    else toast("✅ Fornecedor salvo no banco!");
   }
   async function removeForn(id){
     setFornecedores(fs=>fs.filter(x=>x.id!==id));
-    await dbDelete("fornecedores", id);
+    await dbDelete("fornecedores", Number(id));
   }
 
   function deletePedido(id){setPedidos(p=>p.filter(x=>x.id!==id));setTarefas(ts=>ts.filter(t=>t.pedidoId!==id));}

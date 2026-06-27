@@ -195,8 +195,10 @@ function buildAcompanhamentoTask(pedido, forn, obra, comprador){
     obra: pedido.obra,
     assignedTo: Number(pedido.comprador),
     due: pedido.previsaoEntrega||"",
-    title: `Pedido ${pedido.numero} — ${forn?.nome||pedido.fornecedor||""} — ${resumo}`,
-    description: `Pedido criado em ${new Date().toLocaleDateString("pt-BR")}. Previsão de entrega: ${pedido.previsaoEntrega? new Date(pedido.previsaoEntrega).toLocaleDateString("pt-BR"):"Não definida"}. Acompanhe o status da entrega.`,
+    // Title WITHOUT "parcial" — used to identify the initial task
+    title: `Acompanhamento — Pedido ${pedido.numero} — ${forn?.nome||pedido.fornecedor||""} — ${resumo}`,
+    description: `Pedido criado em ${new Date().toLocaleDateString("pt-BR")}. Previsão de entrega: ${pedido.previsaoEntrega? new Date(pedido.previsaoEntrega).toLocaleDateString("pt-BR"):"Não definida"}. Aguardando entrega pelo almoxarife.`,
+    anexos: [],
     messages: [],
     createdBy: pedido.createdBy||"",
     createdAt: nowTs(),
@@ -657,41 +659,98 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
   }
 
   function confirmarEntregas() {
-    // Apply all pending itensEdit to actual state
     const pendentes = Object.entries(itensEdit);
     if(pendentes.length===0){toast("Nenhuma alteração para confirmar.");return;}
+
+    // Apply edits
     let novos = [...itens];
     pendentes.forEach(([id,q])=>{
-      novos = novos.map(it=>it.id===id?{...it,qtdEntregue:q,status:q<=0?"pendente":q>=it.quantidade?"entregue":"parcial",updatedBy:cu.name,updatedAt:nowTs()}:it);
+      novos = novos.map(it=>it.id===id?{...it,qtdEntregue:Number(q),status:Number(q)<=0?"pendente":Number(q)>=it.quantidade?"entregue":"parcial",updatedBy:cu.name,updatedAt:nowTs()}:it);
     });
-    const ne = novos.filter(i=>i.status==="entregue").length;
-    const ns = novos.length>0?(ne===novos.length?"entregue":novos.every(i=>i.status==="pendente")?"pendente":"parcial"):pedido.status;
+    const ne  = novos.filter(i=>i.status==="entregue").length;
+    const ns  = novos.length>0?(ne===novos.length?"entregue":novos.every(i=>i.status==="pendente")?"pendente":"parcial"):pedido.status;
+    const prevStatus = pedido.status;
+
     onUpdateItens(pedido.id, novos, ns);
-    const parciais = novos.filter(i=>i.status==="parcial"||i.status==="pendente");
-    if(ns==="parcial"&&pedido.status!=="parcial"){
+
+    // ── Tarefa inicial de acompanhamento (criada ao criar pedido)
+    // Identificada como a tarefa com titulo sem "parcial"
+    const tarefaInicial = tarefas.find(t=>
+      t.pedidoId===pedido.id &&
+      t.categoria==="acompanhamento" &&
+      !t.title.toLowerCase().includes("parcial")
+    );
+
+    // 3b — Entrega PARCIAL: finaliza tarefa inicial (robô) e cria nova tarefa parcial
+    if(ns==="parcial" && prevStatus!=="parcial"){
       const pendList = novos.filter(i=>i.status!=="entregue").map(i=>`${i.descricao} (${i.qtdEntregue}/${i.quantidade} ${i.unidade})`).join(", ");
+
       onAddMsg(pedido.id,{id:uid(),userId:cu.id,userName:cu.name,avatar:cu.avatar,
-        text:`📦 **Entrega parcial** confirmada por ${cu.name}. Recebido: ${pendentes.length} item(ns) atualizado(s). Pendente: ${pendList}`,
+        text:`📦 **Entrega parcial** confirmada por ${cu.name}. Itens pendentes: ${pendList}`,
         type:"sistema",createdAt:nowTs()});
-      // Cria UMA única tarefa para o evento
-      const taskExists = tarefas.find(t=>t.pedidoId===pedido.id&&t.categoria==="acompanhamento"&&t.status!=="resolvida"&&t.title.includes("parcial"));
-      if(!taskExists){
-        const task={id:uid(),categoria:"acompanhamento",
+
+      // Robô finaliza tarefa inicial
+      if(tarefaInicial && tarefaInicial.status!=="resolvida"){
+        setTarefas(ts=>ts.map(t=>t.id===tarefaInicial.id?{...t,
+          status:"resolvida",
+          resolvidaEm:nowTs(),
+          resolvidaPor:"Sistema (entrega parcial confirmada)"
+        }:t));
+      }
+
+      // Cria UMA nova tarefa de parcial (evita duplicar)
+      const jaTemParcial = tarefas.find(t=>t.pedidoId===pedido.id&&t.categoria==="acompanhamento"&&t.title.toLowerCase().includes("parcial")&&t.status!=="resolvida");
+      if(!jaTemParcial){
+        setTarefas(ts=>[{
+          id:uid(), categoria:"acompanhamento",
           title:`Entrega parcial — Pedido ${pedido.numero} (${forn.nome})`,
-          description:`Almoxarife ${cu.name} confirmou entrega parcial. Saldo pendente: ${pendList}`,
-          status:"aberta",pedidoId:pedido.id,obra:pedido.obra,
-          assignedTo:Number(pedido.comprador),due:pedido.previsaoEntrega||"",
-          anexos:[],messages:[],createdBy:cu.name,createdAt:nowTs()};
-        setTarefas(ts=>[task,...ts]);
+          description:`Almoxarife ${cu.name} confirmou entrega parcial em ${fmtDT(nowTs())}. Saldo pendente: ${pendList}`,
+          status:"aberta", pedidoId:pedido.id, obra:pedido.obra,
+          assignedTo:Number(pedido.comprador), due:pedido.previsaoEntrega||"",
+          anexos:[], messages:[], createdBy:"Sistema", createdAt:nowTs()
+        },...ts]);
       }
     }
-    if(ns==="entregue"&&pedido.status!=="entregue"){
+
+    // 3c — Entrega TOTAL: robô finaliza TODAS as tarefas de acompanhamento abertas
+    if(ns==="entregue" && prevStatus!=="entregue"){
       onAddMsg(pedido.id,{id:uid(),userId:cu.id,userName:cu.name,avatar:cu.avatar,
-        text:`✅ **Entrega total** confirmada por ${cu.name} em ${fmtDT(nowTs())}`,
+        text:`✅ **Entrega total** confirmada por ${cu.name} em ${fmtDT(nowTs())}. Todos os ${novos.length} itens recebidos.`,
         type:"sistema",createdAt:nowTs()});
+
+      // Robô fecha todas as tarefas de acompanhamento abertas deste pedido
+      setTarefas(ts=>ts.map(t=>{
+        if(t.pedidoId===pedido.id && t.categoria==="acompanhamento" && t.status!=="resolvida"){
+          return{...t,status:"resolvida",resolvidaEm:nowTs(),resolvidaPor:"Sistema (entrega total confirmada)"};
+        }
+        return t;
+      }));
     }
+
+    // 3d — Reabertura: se status voltou de entregue para parcial/pendente,
+    // reativa a última tarefa de acompanhamento resolvida pelo sistema
+    if((ns==="parcial"||ns==="pendente") && prevStatus==="entregue"){
+      const ultimaFechada = [...tarefas]
+        .filter(t=>t.pedidoId===pedido.id && t.categoria==="acompanhamento" && t.status==="resolvida" && t.resolvidaPor?.includes("Sistema"))
+        .sort((a,b)=>new Date(b.resolvidaEm||0)-new Date(a.resolvidaEm||0))[0];
+
+      if(ultimaFechada){
+        setTarefas(ts=>ts.map(t=>t.id===ultimaFechada.id?{...t,
+          status:"aberta",
+          resolvidaEm:null,
+          resolvidaPor:null,
+          description:t.description+`
+[Reaberta em ${fmtDT(nowTs())} — pedido voltou para ${ns}]`
+        }:t));
+        onAddMsg(pedido.id,{id:uid(),userId:0,userName:"Sistema",avatar:"🤖",
+          text:`⚠️ Pedido reaberto — status voltou para **${ns}**. Tarefa de acompanhamento reativada.`,
+          type:"sistema",createdAt:nowTs()});
+        toast("⚠️ Pedido reaberto — tarefa de acompanhamento reativada!");
+      }
+    }
+
     setItensEdit({});
-    toast(ns==="entregue"?"✅ Entrega total confirmada!":ns==="parcial"?"📦 Entrega parcial confirmada!":"↩ Itens revertidos.");
+    toast(ns==="entregue"?"✅ Entrega total confirmada!":ns==="parcial"?"📦 Entrega parcial confirmada!":ns==="pendente"?"↩ Itens revertidos para pendente.":"Atualizado.");
   }
 
   function marcarTodosEntregues() {
@@ -1032,9 +1091,12 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
                             {temAnexo?"📎 Ver/Enviar":"📎 Anexar Boleto"}
                           </button>
                         )}
-                        {/* almoxarife vê os boletos e encerra */}
+                        {/* almoxarife vê os boletos e encerra - só após comprador anexar */}
                         {isBoleto&&isAlmox&&temAnexo&&t.status!=="resolvida"&&(
-                          <button onClick={()=>{setTarefas(ts=>ts.map(x=>x.id===t.id?{...x,status:"resolvida"}:x));toast("✅ Tarefa de boleto encerrada!");}} style={{padding:"3px 9px",borderRadius:6,border:"1.5px solid "+G.green,background:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:G.greenDark}}>✅ Encerrar</button>
+                          <button onClick={()=>{setTarefas(ts=>ts.map(x=>x.id===t.id?{...x,status:"resolvida",resolvidaEm:nowTs(),resolvidaPor:cu.name}:x));toast("✅ Boleto recebido — tarefa encerrada!");}} style={{padding:"3px 9px",borderRadius:6,border:"1.5px solid "+G.green,background:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:G.greenDark}}>✅ Confirmar Recebimento</button>
+                        )}
+                        {isBoleto&&isAlmox&&!temAnexo&&t.status!=="resolvida"&&(
+                          <span style={{fontSize:10,color:G.red,fontWeight:600}}>⏳ Aguardando comprador anexar boleto</span>
                         )}
                         {!isBoleto&&t.status!=="resolvida"&&(
                           <button onClick={()=>{setTarefas(ts=>ts.map(x=>x.id===t.id?{...x,status:"resolvida"}:x));toast("✅ Concluída!");}} style={{padding:"3px 9px",borderRadius:6,border:"1.5px solid "+G.green,background:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:G.greenDark}}>✅ Concluir</button>
@@ -1137,6 +1199,9 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
   return(
     <Modal open={open} onClose={onClose} title="⚙️ Configurações" width={980}>
       <div style={{display:"flex",gap:8,marginBottom:20}}>{TB("obras","🏗️ Obras")}{TB("fornecedores","🏢 Fornecedores")}{TB("users","👥 Usuários")}</div>
+      <div style={{background:"#E8F5E9",border:"1px solid #A5D6A7",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:12,color:G.greenDark}}>
+        🔐 Área restrita ao Coordenador de Suprimentos. Alterações impactam todo o sistema.
+      </div>
 
       {/* ── OBRAS ── */}
       {tab==="obras"&&<div style={{display:"flex",gap:16}}>
@@ -1463,6 +1528,14 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
     setShowNew(false); toast("Tarefa criada!");
   }
   function quickStatus(id,status){
+    const t = tarefas.find(x=>x.id===id);
+    if(status==="resolvida" && t?.categoria==="boleto"){
+      const temAnexo = (t.anexos||[]).length>0;
+      if(!temAnexo){
+        toast("⚠️ Tarefa de boleto só pode ser concluída após o comprador anexar o boleto.");
+        return;
+      }
+    }
     setTarefas(ts=>ts.map(t=>t.id===id?{...t,status}:t));
     if(selTarefa?.id===id)setSelTarefa(st=>({...st,status}));
   }
@@ -1515,7 +1588,12 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
       <div style={{marginBottom:14}}>
         <div style={{fontSize:11,fontWeight:700,color:G.muted,textTransform:"uppercase",marginBottom:8}}>Alterar Status</div>
         <div style={{display:"flex",gap:8}}>
-          {Object.entries(TSTAT).map(([k,v])=><button key={k} onClick={()=>{quickStatus(tDetail.id,k);setSelTarefa(st=>({...st,status:k}));}} style={{padding:"7px 16px",borderRadius:20,fontSize:12,fontWeight:700,cursor:"pointer",border:"2px solid "+(tDetail.status===k?v.color:"#DDE8DD"),background:tDetail.status===k?v.bg:"none",color:tDetail.status===k?v.color:G.muted}}>{v.icon} {v.label}</button>)}
+          {Object.entries(TSTAT).map(([k,v])=>{
+            const isBlocked = k==="resolvida" && tDetail.categoria==="boleto" && !(tDetail.anexos||[]).length;
+            return <button key={k} onClick={()=>{if(!isBlocked){quickStatus(tDetail.id,k);setSelTarefa(st=>({...st,status:k}));}else toast("⚠️ Anexe o boleto antes de concluir.");}}
+              title={isBlocked?"Anexe o boleto primeiro":v.label}
+              style={{padding:"7px 16px",borderRadius:20,fontSize:12,fontWeight:700,cursor:isBlocked?"not-allowed":"pointer",opacity:isBlocked?.4:1,border:"2px solid "+(tDetail.status===k?v.color:"#DDE8DD"),background:tDetail.status===k?v.bg:"none",color:tDetail.status===k?v.color:G.muted}}>{v.icon} {v.label}</button>;
+          })}
         </div>
       </div>
       <Fld label="Responsável">
@@ -1695,9 +1773,11 @@ export default function App(){
           </button>;})}
         </nav>
         <div style={{padding:"10px 8px",borderTop:"1px solid rgba(255,255,255,.08)"}}>
-          <button onClick={()=>setShowCfg(true)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 11px",borderRadius:9,border:"none",cursor:"pointer",background:"none",color:"rgba(255,255,255,.55)",fontWeight:500,fontSize:13,textAlign:"left",width:"100%"}}>
-            <span style={{fontSize:17,width:20,textAlign:"center"}}>⚙️</span>Configurações
-          </button>
+          {["coordenador"].includes(cu.role)&&(
+            <button onClick={()=>setShowCfg(true)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 11px",borderRadius:9,border:"none",cursor:"pointer",background:"none",color:"rgba(255,255,255,.55)",fontWeight:500,fontSize:13,textAlign:"left",width:"100%"}}>
+              <span style={{fontSize:17,width:20,textAlign:"center"}}>⚙️</span>Configurações
+            </button>
+          )}
           <div style={{display:"flex",alignItems:"center",gap:9,padding:"9px 11px",cursor:"pointer"}} onClick={()=>setLoggedIn(false)}>
             <Av s={cu.avatar} size={28} color={RCOL[cu.role]||G.green}/>
             <div style={{flex:1,minWidth:0}}><div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,.85)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cu.name.split(" ")[0]}</div><div style={{fontSize:9,color:"rgba(255,255,255,.4)"}}>{ROLES[cu.role]}</div></div>

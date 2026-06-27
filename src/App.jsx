@@ -504,7 +504,7 @@ function PedidoForm({open,onClose,onSave,users,obras,fornecedores,onAutoCreate,c
       const obraFinal = oResult.match;
       const fornFinal = fResult.match;
 
-      const almox = obraFinal ? users.find(u=>u.id===obraFinal.almoxarife) : null;
+      const almox = obraFinal ? users.find(u=>String(u.id)===String(obraFinal.almoxarife)) : null;
       const itens = (parsed.itens||[]).map(it=>({
         id:uid(),
         codigo:         String(it.codigo||""),
@@ -614,7 +614,7 @@ function PedidoForm({open,onClose,onSave,users,obras,fornecedores,onAutoCreate,c
         <Fld label="Obra" required>
           <Sel value={f.obra} onChange={e=>set("obra",e.target.value)}>
             <option value="">Selecionar obra…</option>
-            {obras.filter(o=>o.active).map(o=>{const a=users.find(u=>u.id===o.almoxarife);return<option key={o.id} value={o.id}>{o.code} — {o.name}{a?" (Almox: "+a.name+")":""}</option>;})}
+            {obras.filter(o=>o.active).map(o=>{const a=users.find(u=>String(u.id)===String(o.almoxarife));return<option key={o.id} value={o.id}>{o.code} — {o.name}{a?" (Almox: "+a.name+")":""}</option>;})}
           </Sel>
         </Fld>
         <Fld label="Comprador" required>
@@ -858,7 +858,7 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
   const cfg       = STATUS_CFG[atrasado?"atrasado":pedido.status] || STATUS_CFG.pendente;
   const obra      = obras.find(o=>String(o.id)===String(pedido.obra));
   const forn      = fornecedores.find(f=>String(f.id)===String(pedido.fornecedorId)) || {nome:pedido.fornecedor||""};
-  const alm       = obra ? users.find(u=>u.id===obra.almoxarife) : null;
+  const alm       = obra ? users.find(u=>String(u.id)===String(obra.almoxarife)) : null;
   const comp      = users.find(u=>String(u.id)===String(pedido.comprador));
   const itens     = pedido.itens || [];
   const nTot      = itens.length;
@@ -1646,7 +1646,7 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
         <div style={{flex:1,overflowY:"auto",maxHeight:500}}>
           {obras.length===0&&<div style={{color:G.light,textAlign:"center",padding:"40px 0",fontSize:14}}>Nenhuma obra. Adicione manualmente ou crie via PDF.</div>}
           {obras.map(o=>{
-            const alm=users.find(u=>u.id===o.almoxarife);
+            const alm=users.find(u=>String(u.id)===String(o.almoxarife));
             return<Card key={o.id} style={{opacity:o.active?1:.65,background:o.active?G.surface:"#f5f5f5"}}>
               <div style={{width:46,height:46,borderRadius:10,background:G.green+"22",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,color:G.greenDark,flexShrink:0}}>{o.code}</div>
               <div style={{flex:1,minWidth:0}}>
@@ -1839,7 +1839,7 @@ function PedidoRow({p,users,obras,fornecedores,tarefas,onClick}){
   const atrasado=isAtrasado(p);
   const cfg=STATUS[atrasado?"atrasado":p.status]||STATUS.pendente;
   const obra=obras.find(o=>String(o.id)===String(p.obra));
-  const alm=obra?users.find(u=>u.id===obra.almoxarife):null;
+  const alm=obra?users.find(u=>String(u.id)===String(obra.almoxarife)):null;
   const comp=users.find(u=>String(u.id)===String(p.comprador));
   const itens=p.itens||[];
   const nEnt=itens.filter(i=>i.status==="entregue").length,nTot=itens.length;
@@ -2202,7 +2202,7 @@ export default function App(){
     if(dupPedido){toast("❌ Pedido "+form.numero+" já existe. Não é permitido duplicar.");return;}
 
     const obra=obras.find(o=>String(o.id)===String(form.obra));
-    const alm=obra?users.find(u=>u.id===obra.almoxarife):null;
+    const alm=obra?users.find(u=>String(u.id)===String(obra.almoxarife)):null;
     const forn=fornecedores.find(f=>String(f.id)===String(form.fornecedorId));
     const p0={
       id:uid(), ...form,

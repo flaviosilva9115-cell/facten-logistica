@@ -2498,12 +2498,42 @@ function PainelAcompanhamento({open, onClose, pedidos, tarefas, users, obras, on
   );
 }
 
+// ── Limpa tarefas duplicadas e obsoletas ──────────────────────────────────────
+function limparTarefas(ts){
+  // 1. Remove alerta7_ (criados pela versão antiga)
+  const s1 = ts.filter(t=>!String(t.id).startsWith("alerta7_"));
+  // 2. Por pedido: mantém só 1 tarefa inicial de acompanhamento (a mais recente)
+  //    e 1 parcial. Descarta duplicatas.
+  const grupos = {};
+  s1.forEach(t=>{
+    if(t.categoria!=="acompanhamento") return;
+    const isParcial = t.title.toLowerCase().includes("parcial");
+    const key = String(t.pedidoId)+"_"+(isParcial?"parcial":"inicial");
+    if(!grupos[key]){
+      grupos[key] = t;
+    } else {
+      // Mantém a mais recente (maior createdAt)
+      if((t.createdAt||"") > (grupos[key].createdAt||"")) grupos[key] = t;
+    }
+  });
+  return s1.filter(t=>{
+    if(t.categoria!=="acompanhamento") return true;
+    const isParcial = t.title.toLowerCase().includes("parcial");
+    const key = String(t.pedidoId)+"_"+(isParcial?"parcial":"inicial");
+    return grupos[key]?.id === t.id;
+  });
+}
+
+
 export default function App(){
   const [users,        setUsers]        = useState(USERS0);      // loaded from Supabase
   const [obras,        setObras]        = useState([]);           // loaded from Supabase
   const [fornecedores, setFornecedores] = useState([]);           // loaded from Supabase
   const [pedidos,      setPedidos]      = useState(()=>ld(K.pedidos, []));
-  const [tarefas,      setTarefas]      = useState(()=>ld(K.tarefas, []));
+  const [tarefas, setTarefas] = useState(()=>{
+    const ts = ld(K.tarefas, []);
+    return limparTarefas(ts);
+  });
   const [events,       setEvents]       = useState(()=>ld(K.events,  []));
   const [atas,         setAtas]         = useState(()=>ld(K.atas,    []));
   const [dbLoading,    setDbLoading]    = useState(true);
@@ -2534,7 +2564,15 @@ export default function App(){
 
   // Pedidos/tarefas/events/atas → localStorage (fast)
   useEffect(()=>sv(K.pedidos,  pedidos),  [pedidos]);
-  useEffect(()=>sv(K.tarefas,  tarefas),  [tarefas]);
+  useEffect(()=>{
+    // Limpa duplicatas antes de persistir
+    const limpas = limparTarefas(tarefas);
+    if(limpas.length !== tarefas.length){
+      setTarefas(limpas); // força atualização se removeu algo
+    } else {
+      sv(K.tarefas, limpas);
+    }
+  },[tarefas]);
   useEffect(()=>sv(K.events,   events),   [events]);
   useEffect(()=>sv(K.atas,     atas),     [atas]);
   useEffect(()=>sv(K.li,       loggedIn), [loggedIn]);

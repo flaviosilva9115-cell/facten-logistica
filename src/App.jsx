@@ -1441,15 +1441,16 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
   const setO=(k,v)=>setOForm(p=>({...p,[k]:v}));
   const almoxs=users.filter(u=>["almoxarife","aux_almoxarife"].includes(u.role)&&u.active);
 
-  async function saveObra(){
+  async function handleSalvarObra(){
     if(!oForm.code||!oForm.name){toast("⚠️ Código e nome obrigatórios.");return;}
-    const dup=obras.find(o=>o.code===oForm.code&&o.id!==oEdit);
-    if(dup){toast("⚠️ Código "+oForm.code+" já existe.");return;}
+    // Duplicidade absoluta: código único
+    const dup=obras.find(o=>o.code.trim()===oForm.code.trim()&&o.id!==oEdit);
+    if(dup){toast("❌ Já existe a obra "+dup.code+" — "+dup.name+". Código não pode ser repetido.");return;}
     const newId = oEdit ? Number(oEdit) : (obras.length>0 ? Math.max(...obras.map(x=>Number(x.id)||0))+1 : 1);
     const saved = {...oForm, id:newId};
     toast(oEdit?"💾 Atualizando obra…":"💾 Criando obra…");
     try { await doSaveObra(saved); setOEdit(null); setOForm(oBlank); }
-    catch(e){ toast("❌ Erro: "+e.message); }
+    catch(e){ toast("❌ Erro ao salvar obra: "+e.message); }
   }
 
   // ── FORNECEDORES ──
@@ -1457,18 +1458,22 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
   const [fForm,setFForm]=useState(fBlank);const[fEdit,setFEdit]=useState(null);
   const setFF=(k,v)=>setFForm(p=>({...p,[k]:v}));
 
-  async function saveForn(){
+  async function handleSalvarForn(){
     if(!fForm.nome){toast("⚠️ Nome obrigatório.");return;}
+    // Duplicidade por CNPJ
     if(fForm.cnpj){
       const cnpjNum=fForm.cnpj.replace(/\D/g,"");
       const dup=fornecedores.find(f=>f.cnpj?.replace(/\D/g,"")===cnpjNum&&f.id!==fEdit);
-      if(dup){toast("⚠️ CNPJ já cadastrado para: "+dup.nome);return;}
+      if(dup){toast("❌ CNPJ já cadastrado para: "+dup.nome+". Não é permitido duplicar.");return;}
     }
+    // Duplicidade por nome
+    const dupNome=fornecedores.find(f=>f.nome.toLowerCase().trim()===fForm.nome.toLowerCase().trim()&&f.id!==fEdit);
+    if(dupNome){toast("❌ Fornecedor '"+fForm.nome+"' já cadastrado. Não é permitido duplicar.");return;}
     const newId = fEdit ? Number(fEdit) : (fornecedores.length>0 ? Math.max(...fornecedores.map(x=>Number(x.id)||0))+1 : 1);
     const saved = {...fForm, id:newId};
     toast(fEdit?"💾 Atualizando fornecedor…":"💾 Criando fornecedor…");
     try { await doSaveForn(saved); setFEdit(null); setFForm(fBlank); }
-    catch(e){ toast("❌ Erro: "+e.message); }
+    catch(e){ toast("❌ Erro ao salvar fornecedor: "+e.message); }
   }
 
   // ── USUÁRIOS ──
@@ -1476,30 +1481,26 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
   const [uForm,setUForm]=useState(uBlank);const[uEdit,setUEdit]=useState(null);
   const setU=(k,v)=>setUForm(p=>({...p,[k]:v}));
 
-  async function saveUser(){
+  async function handleSalvarUser(){
     if(!uForm.name||!uForm.email){toast("⚠️ Nome e e-mail obrigatórios.");return;}
+    // Duplicidade absoluta por e-mail
     const dup=users.find(u=>u.email?.toLowerCase()===uForm.email.toLowerCase()&&u.id!==uEdit);
-    if(dup){toast("⚠️ E-mail já cadastrado para "+dup.name);return;}
+    if(dup){toast("❌ E-mail '"+uForm.email+"' já cadastrado para "+dup.name+". Não é permitido duplicar.");return;}
     const av=uForm.name.split(" ").map(n=>n[0]).slice(0,2).join("").toUpperCase();
     const newId = uEdit ? Number(uEdit) : (users.length>0 ? Math.max(...users.map(x=>Number(x.id)||0))+1 : 1);
     const saved = {
-      id: newId,
-      name: uForm.name,
-      email: uForm.email,
-      role: uForm.role,
-      obras: uForm.obras||[],
-      active: uForm.active!==false,
-      avatar: av,
-      senhaHash: uEdit ? (uForm.senhaHash||"") : "",
-      primeiroAcesso: uEdit ? (uForm.primeiroAcesso!==false) : true
+      id: newId, name: uForm.name, email: uForm.email.toLowerCase().trim(),
+      role: uForm.role, obras: uForm.obras||[], active: uForm.active!==false,
+      avatar: av, senhaHash: uEdit?(uForm.senhaHash||""):"",
+      primeiroAcesso: uEdit?(uForm.primeiroAcesso!==false):true
     };
-    toast(uEdit ? "💾 Salvando alterações…" : "💾 Criando usuário…");
+    toast(uEdit?"💾 Salvando alterações…":"💾 Criando usuário…");
     try {
       await doSaveUser(saved);
       setUEdit(null);
       setUForm(uBlank);
     } catch(e) {
-      toast("❌ Erro: "+e.message);
+      toast("❌ Erro ao criar usuário: "+e.message);
     }
   }
 
@@ -1532,7 +1533,7 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}><input type="checkbox" id="oact" checked={oForm.active} onChange={e=>setO("active",e.target.checked)}/><label htmlFor="oact" style={{fontSize:13}}>Obra ativa</label></div>
           <div style={{display:"flex",gap:8}}>
             {oEdit&&<Btn variant="secondary" size="sm" onClick={()=>{setOEdit(null);setOForm(oBlank);}}>Cancelar</Btn>}
-            <Btn onClick={saveObra} style={{flex:1}}>{oEdit?"Salvar":"Adicionar"}</Btn>
+            <Btn onClick={handleSalvarObra} style={{flex:1}}>{oEdit?"Salvar":"Adicionar"}</Btn>
           </div>
         </div>
         <div style={{flex:1,overflowY:"auto",maxHeight:500}}>
@@ -1566,7 +1567,7 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}><input type="checkbox" id="fact" checked={fForm.ativo} onChange={e=>setFF("ativo",e.target.checked)}/><label htmlFor="fact" style={{fontSize:13}}>Ativo</label></div>
           <div style={{display:"flex",gap:8}}>
             {fEdit&&<Btn variant="secondary" size="sm" onClick={()=>{setFEdit(null);setFForm(fBlank);}}>Cancelar</Btn>}
-            <Btn onClick={saveForn} style={{flex:1}}>{fEdit?"Salvar":"Adicionar"}</Btn>
+            <Btn onClick={handleSalvarForn} style={{flex:1}}>{fEdit?"Salvar":"Adicionar"}</Btn>
           </div>
         </div>
         <div style={{flex:1,overflowY:"auto",maxHeight:500}}>
@@ -1609,7 +1610,7 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}><input type="checkbox" id="uact" checked={uForm.active} onChange={e=>setU("active",e.target.checked)}/><label htmlFor="uact" style={{fontSize:13}}>Ativo</label></div>
           <div style={{display:"flex",gap:8}}>
             {uEdit&&<Btn variant="secondary" size="sm" onClick={()=>{setUEdit(null);setUForm(uBlank);}}>Cancelar</Btn>}
-            <Btn onClick={saveUser} style={{flex:1}}>{uEdit?"Salvar":"Adicionar"}</Btn>
+            <Btn onClick={handleSalvarUser} style={{flex:1}}>{uEdit?"Salvar":"Adicionar"}</Btn>
           </div>
         </div>
         <div style={{flex:1,overflowY:"auto",maxHeight:500}}>
@@ -2043,23 +2044,32 @@ export default function App(){
 
   function handleAutoCreate(tipo,item){
     if(tipo==="obra"){
-      setObras(o=>{if(o.find(x=>x.code===item.code))return o;return[...o,item];});
-      dbUpsert("obras", obraToDb(item));
-      toast("🏗️ Obra "+item.code+" criada via PDF!");
+      // Não duplicar por código
+      const exists = obras.find(x=>x.code===String(item.code).trim());
+      if(!exists){
+        setObras(o=>[...o,item]);
+        dbUpsert("obras", obraToDb(item));
+        toast("🏗️ Obra "+item.code+" criada automaticamente via PDF!");
+      }
     }
     if(tipo==="fornecedor"){
-      setFornecedores(f=>{
-        const cnpj=item.cnpj?.replace(/\D/g,"");
-        if(cnpj&&f.find(x=>x.cnpj?.replace(/\D/g,"")===cnpj))return f;
-        if(f.find(x=>x.nome.toLowerCase()===item.nome.toLowerCase()))return f;
-        return[...f,item];
-      });
-      dbUpsert("fornecedores", fornToDb(item));
-      toast("🏢 Fornecedor '"+item.nome+"' criado via PDF!");
+      // Não duplicar por CNPJ nem por nome
+      const cnpj=(item.cnpj||"").replace(/\D/g,"");
+      const existeCnpj = cnpj && fornecedores.find(x=>(x.cnpj||"").replace(/\D/g,"")===cnpj);
+      const existeNome = fornecedores.find(x=>x.nome.toLowerCase().trim()===item.nome.toLowerCase().trim());
+      if(!existeCnpj && !existeNome){
+        setFornecedores(f=>[...f,item]);
+        dbUpsert("fornecedores", fornToDb(item));
+        toast("🏢 Fornecedor '"+item.nome+"' criado automaticamente via PDF!");
+      }
     }
   }
 
   function savePedido(form){
+    // Duplicidade absoluta por número de pedido
+    const dupPedido = pedidos.find(p=>p.numero===String(form.numero).trim());
+    if(dupPedido){toast("❌ Pedido "+form.numero+" já existe. Não é permitido duplicar.");return;}
+
     const obra=obras.find(o=>String(o.id)===String(form.obra));
     const alm=obra?users.find(u=>u.id===obra.almoxarife):null;
     const forn=fornecedores.find(f=>String(f.id)===String(form.fornecedorId));

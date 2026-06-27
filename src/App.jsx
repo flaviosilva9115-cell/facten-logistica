@@ -790,11 +790,17 @@ function TarefaBoletoModal({open, onClose, tarefa, cu, onAnexo, onConcluir, toas
       footer={<>
         <Btn variant="secondary" onClick={onClose}>Fechar</Btn>
         {anexos.length > 0
-        ? <Btn onClick={() => { onConcluir(tarefa.id); onClose(); toast("✅ Boleto(s) enviados! Tarefa concluída."); }}>✅ Enviar & Concluir ({anexos.length} arquivo{anexos.length>1?"s":""})</Btn>
-        : <span style={{fontSize:12,color:G.red,fontWeight:600}}>⚠️ Anexe pelo menos 1 boleto para concluir</span>}
+          ? <Btn onClick={() => { onConcluir(tarefa.id); onClose(); }}
+              style={{background:G.purple}}>
+              📤 Enviar ao Almoxarife ({anexos.length} arquivo{anexos.length>1?"s":""})
+            </Btn>
+          : <span style={{fontSize:12,color:G.red,fontWeight:600}}>⚠️ Anexe pelo menos 1 boleto/NF para enviar</span>}
       </>}>
-      <div style={{background:"#F3E5F5",border:"1px solid #9C27B050",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:13,color:"#6A1B9A"}}>
-        🧾 Anexe o(s) boleto(s) e/ou nota fiscal para liberar o pagamento. Após enviar, a tarefa será concluída para o comprador.
+      <div style={{background:"#F3E5F5",border:"1px solid #9C27B050",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:"#6A1B9A"}}>
+        <div style={{fontWeight:700,marginBottom:4}}>🔄 Ciclo do Boleto/NF:</div>
+        <div>1️⃣ <strong>Você (comprador)</strong> — Anexa o(s) boleto(s)/NF e clica em "Enviar ao Almoxarife"</div>
+        <div>2️⃣ <strong>Almoxarife</strong> — Recebe, baixa o boleto e confirma o recebimento</div>
+        <div>3️⃣ Ciclo encerrado ✅</div>
       </div>
       <Fld label="Observação (opcional)">
         <Txa rows={2} value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ex: NF 12345, boleto com vencimento 10/07..."/>
@@ -1040,9 +1046,13 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
     const nova = {
       id:uid(), categoria:"boleto",
       title:`Boleto/NF pendente — NF ${nfNum.trim()} — Pedido ${pedido.numero} (${forn.nome})`,
-      description:`Almoxarife ${cu.name} informou que a NF ${nfNum.trim()} chegou sem boleto. Pedido ${pedido.numero}, Fornecedor: ${forn.nome}.`,
-      status:"aberta", pedidoId:pedido.id, obra:pedido.obra,
-      assignedTo:Number(pedido.comprador), due:pedido.previsaoEntrega||"",
+      description:`Almoxarife ${cu.name} informou que a NF ${nfNum.trim()} chegou sem boleto/CT-e. Pedido ${pedido.numero}, Fornecedor: ${forn.nome}. O comprador deve anexar o boleto para que o almoxarife possa confirmar o recebimento.`,
+      status:"aberta",
+      pedidoId:pedido.id, obra:pedido.obra,
+      assignedTo:Number(pedido.comprador), // começa com comprador
+      criadoPorAlmox:cu.id,               // almoxarife que criou
+      criadoPorAlmoxNome:cu.name,
+      due:pedido.previsaoEntrega||"",
       anexos:[], messages:[], createdBy:cu.name, createdAt:nowTs()
     };
     setTarefas(ts=>[nova,...ts]);
@@ -1067,14 +1077,43 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
   }
 
   function onAnexoTarefa(tarefaId, anexo) {
-    setTarefas(ts => ts.map(t => t.id===tarefaId ? {...t, anexos:[...(t.anexos||[]), anexo], status:"andamento"} : t));
+    // Quando comprador anexa boleto:
+    // 1. Adiciona o anexo
+    // 2. Muda status para "andamento" (volta para almoxarife)
+    // 3. Muda assignedTo para o almoxarife da obra
+    const tarefa = tarefas.find(t=>t.id===tarefaId);
+    const obra = obras.find(o=>String(o.id)===String(pedido.obra));
+    const almoxId = obra?.almoxarife || tarefa?.assignedTo;
+    setTarefas(ts => ts.map(t => t.id===tarefaId ? {
+      ...t,
+      anexos: [...(t.anexos||[]), anexo],
+      status: "andamento",
+      assignedTo: almoxId, // volta para almoxarife
+      boletoEnviadoPor: cu.name,
+      boletoEnviadoEm: nowTs(),
+    } : t));
+    onAddMsg(pedido.id, {id:uid(), userId:cu.id, userName:cu.name, avatar:cu.avatar,
+      text:`🧾 **Boleto/NF anexado** por ${cu.name}: **${anexo.name}**. Aguardando confirmação do almoxarife.`,
+      type:"sistema", createdAt:nowTs()});
+    toast("📎 Boleto enviado! Aguardando confirmação do almoxarife.");
   }
 
   function concluirTarefaBoleto(tarefaId) {
-    setTarefas(ts => ts.map(t => t.id===tarefaId ? {...t, status:"resolvida", resolvidaEm:nowTs(), resolvidaPor:cu.name} : t));
-    onAddMsg(pedido.id, {id:uid(), userId:cu.id, userName:cu.name, avatar:cu.avatar,
-      text:"🧾 **Boleto/NF enviado** pelo comprador. Tarefa concluída.",
-      type:"sistema", createdAt:nowTs()});
+    // Comprador clicou "Enviar & Concluir" no modal
+    // Tarefa vai para "andamento" e é reatribuída ao almoxarife
+    // (o onAnexoTarefa já faz isso ao adicionar cada arquivo)
+    // Aqui apenas garantimos o estado correto
+    const tarefa = tarefas.find(t=>t.id===tarefaId);
+    const obra = obras.find(o=>String(o.id)===String(pedido.obra));
+    const almoxId = obra?.almoxarife || tarefa?.assignedTo;
+    setTarefas(ts => ts.map(t => t.id===tarefaId ? {
+      ...t,
+      status: "andamento",
+      assignedTo: almoxId,
+      boletoEnviadoPor: cu.name,
+      boletoEnviadoEm: nowTs(),
+    } : t));
+    // Tarefa NÃO some para o comprador — fica como "Enviado, aguardando almoxarife"
   }
 
   // ── EXCLUIR / CANCELAR ──────────────────────────────────────────────────────
@@ -1367,18 +1406,44 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
                         {isBoleto&&t.status==="resolvida"&&<div style={{fontSize:11,color:G.greenDark,marginTop:4,fontWeight:700}}>✅ Boleto/NF enviado — tarefa concluída para o comprador</div>}
                       </div>
                       <div style={{display:"flex",gap:4,flexShrink:0}}>
-                        {/* comprador pode anexar boleto */}
-                        {isBoleto&&isComp&&t.status!=="resolvida"&&(
-                          <button onClick={()=>setShowBoletoModal(t)} style={{padding:"3px 9px",borderRadius:6,border:"1.5px solid "+G.purple,background:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:G.purple}}>
-                            {temAnexo?"📎 Ver/Enviar":"📎 Anexar Boleto"}
-                          </button>
+                        {/* CICLO DO BOLETO:
+                            aberta    → comprador anexa
+                            andamento → almoxarife confirma
+                            resolvida → fechado
+                        */}
+                        {isBoleto&&t.status==="aberta"&&isComp&&(
+                          <button onClick={()=>setShowBoletoModal(t)} style={{padding:"4px 10px",borderRadius:6,border:"1.5px solid "+G.purple,background:"#F3E5F5",cursor:"pointer",fontSize:10,fontWeight:700,color:G.purple}}>📎 Anexar Boleto/NF</button>
                         )}
-                        {/* almoxarife vê os boletos e encerra - só após comprador anexar */}
-                        {isBoleto&&isAlmox&&temAnexo&&t.status!=="resolvida"&&(
-                          <button onClick={()=>{setTarefas(ts=>ts.map(x=>x.id===t.id?{...x,status:"resolvida",resolvidaEm:nowTs(),resolvidaPor:cu.name}:x));toast("✅ Boleto recebido — tarefa encerrada!");}} style={{padding:"3px 9px",borderRadius:6,border:"1.5px solid "+G.green,background:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:G.greenDark}}>✅ Confirmar Recebimento</button>
+                        {isBoleto&&t.status==="aberta"&&isAlmox&&(
+                          <span style={{fontSize:10,color:G.muted,fontStyle:"italic"}}>⏳ Aguardando comprador…</span>
                         )}
-                        {isBoleto&&isAlmox&&!temAnexo&&t.status!=="resolvida"&&(
-                          <span style={{fontSize:10,color:G.red,fontWeight:600}}>⏳ Aguardando comprador anexar boleto</span>
+                        {isBoleto&&t.status==="andamento"&&isAlmox&&temAnexo&&(
+                          <div style={{display:"flex",flexDirection:"column",gap:6,alignItems:"flex-start"}}>
+                            <div style={{background:"#E3F2FD",border:"1px solid #90CAF9",borderRadius:8,padding:"8px 12px",fontSize:11,color:"#1565C0",fontWeight:600,maxWidth:320}}>
+                              📥 O comprador já anexou o(s) boleto(s) no pedido de compra. Baixe os arquivos abaixo e encerre a tarefa.
+                            </div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                              {(t.anexos||[]).map(a=>(
+                                <a key={a.id} href={a.data} download={a.name} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 9px",background:"#fff",border:"1px solid "+G.border,borderRadius:6,fontSize:10,color:G.green,textDecoration:"none",fontWeight:700}}>
+                                  ⬇ {a.name}
+                                </a>
+                              ))}
+                            </div>
+                            <button onClick={()=>{
+                              setTarefas(ts=>ts.map(x=>x.id===t.id?{...x,status:"resolvida",resolvidaEm:nowTs(),resolvidaPor:cu.name}:x));
+                              onAddMsg(pedido.id,{id:uid(),userId:cu.id,userName:cu.name,avatar:cu.avatar,
+                                text:"✅ Boleto/NF **confirmado e baixado** pelo almoxarife "+cu.name+". Ciclo de boleto encerrado.",type:"sistema",createdAt:nowTs()});
+                              toast("✅ Boleto confirmado — ciclo encerrado!");
+                            }} style={{padding:"5px 12px",borderRadius:6,border:"none",cursor:"pointer",background:G.green,color:"#fff",fontSize:11,fontWeight:700}}>
+                              ✅ Baixei os arquivos — Encerrar Tarefa
+                            </button>
+                          </div>
+                        )}
+                        {isBoleto&&t.status==="andamento"&&isComp&&(
+                          <span style={{fontSize:10,color:G.green,fontWeight:600}}>📤 Enviado — aguardando almoxarife</span>
+                        )}
+                        {isBoleto&&t.status==="resolvida"&&(
+                          <span style={{fontSize:10,color:G.green,fontWeight:700}}>✅ Ciclo encerrado</span>
                         )}
                         {!isBoleto&&t.status!=="resolvida"&&(
                           <button onClick={()=>{setTarefas(ts=>ts.map(x=>x.id===t.id?{...x,status:"resolvida"}:x));toast("✅ Concluída!");}} style={{padding:"3px 9px",borderRadius:6,border:"1.5px solid "+G.green,background:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:G.greenDark}}>✅ Concluir</button>
@@ -1510,8 +1575,13 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
   return(
     <Modal open={open} onClose={onClose} title="⚙️ Configurações" width={980}>
       <div style={{display:"flex",gap:8,marginBottom:20}}>{TB("obras","🏗️ Obras")}{TB("fornecedores","🏢 Fornecedores")}{TB("users","👥 Usuários")}</div>
-      <div style={{background:"#E8F5E9",border:"1px solid #A5D6A7",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:12,color:G.greenDark}}>
-        🔐 Área restrita ao Coordenador de Suprimentos. Alterações impactam todo o sistema.
+      <div style={{background:"#E8F5E9",border:"1px solid #A5D6A7",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:G.greenDark,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <span>🔐 Área restrita ao Coordenador de Suprimentos. Alterações impactam todo o sistema.</span>
+        <div style={{background:"#FFF8E1",border:"1px solid #F4C430",borderRadius:8,padding:"8px 14px"}}>
+          <div style={{fontSize:12,fontWeight:800,color:"#5D4037",marginBottom:2}}>🔑 Senha provisória de todos os usuários</div>
+          <div style={{fontSize:16,fontWeight:800,color:"#E65100",letterSpacing:"0.1em",fontFamily:"monospace"}}>facten2025</div>
+          <div style={{fontSize:10,color:"#8D6E63",marginTop:2}}>No 1º acesso o sistema obriga criação de senha pessoal.</div>
+        </div>
       </div>
 
       {/* ── OBRAS ── */}
@@ -1840,11 +1910,24 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
   }
   function quickStatus(id,status){
     const t = tarefas.find(x=>x.id===id);
-    if(status==="resolvida" && t?.categoria==="boleto"){
-      const temAnexo = (t.anexos||[]).length>0;
-      if(!temAnexo){
-        toast("⚠️ Tarefa de boleto só pode ser concluída após o comprador anexar o boleto.");
-        return;
+    if(t?.categoria==="boleto"){
+      // Boleto tarefa has its own cycle — cannot be manually resolved from TarefasPage
+      // unless almoxarife AND there are attachments AND status is andamento
+      if(status==="resolvida"){
+        const temAnexo = (t.anexos||[]).length>0;
+        const isAlmoxU = ["almoxarife","aux_almoxarife","coordenador"].includes(cu.role);
+        if(!temAnexo){
+          toast("⚠️ Tarefa de boleto: o comprador ainda não anexou o boleto.");
+          return;
+        }
+        if(!isAlmoxU){
+          toast("⚠️ Só o almoxarife pode confirmar o recebimento do boleto.");
+          return;
+        }
+        if(t.status!=="andamento"){
+          toast("⚠️ O comprador ainda não enviou o boleto.");
+          return;
+        }
       }
     }
     setTarefas(ts=>ts.map(t=>t.id===id?{...t,status}:t));
@@ -2229,7 +2312,7 @@ export default function App(){
         <Fld label="Senha"><Inp type="password" placeholder="Senha de acesso" value={loginPass} onChange={e=>setLoginPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doLogin()}/></Fld>
         {loginErr&&<div style={{color:G.red,fontSize:13,marginBottom:10,textAlign:"center"}}>{loginErr}</div>}
         <button onClick={doLogin} style={{width:"100%",padding:"13px 0",borderRadius:10,border:"none",background:G.green,color:"#fff",fontSize:15,fontWeight:800,cursor:"pointer",marginTop:4}}>Entrar</button>
-        <div style={{textAlign:"center",fontSize:11,color:G.light,marginTop:14}}>Senha padrão: <strong>facten2025</strong></div>
+        {/* Senha provisória removida da tela pública — visível apenas em Configurações */}
       </div>
     </div>
   );

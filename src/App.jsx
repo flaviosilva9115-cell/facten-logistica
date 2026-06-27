@@ -1019,10 +1019,17 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
         text:`✅ **Entrega total** confirmada por ${cu.name} em ${fmtDT(nowTs())}. Todos os ${novos.length} itens recebidos.`,
         type:"sistema",createdAt:nowTs()});
 
-      // Robô fecha todas as tarefas de acompanhamento abertas deste pedido
+      // Robô fecha TODAS as tarefas abertas do pedido ao confirmar entrega total
+      // Exceção: tarefa de boleto em andamento fica aberta (ciclo próprio com almoxarife)
       setTarefas(ts=>ts.map(t=>{
-        if(t.pedidoId===pedido.id && t.categoria==="acompanhamento" && t.status!=="resolvida"){
-          return{...t,status:"resolvida",resolvidaEm:nowTs(),resolvidaPor:"Sistema (entrega total confirmada)"};
+        if(t.pedidoId===pedido.id && t.status!=="resolvida"){
+          // Boleto em andamento (comprador já enviou, almoxarife ainda não confirmou) → mantém aberta
+          if(t.categoria==="boleto" && t.status==="andamento") return t;
+          return{...t,
+            status:"resolvida",
+            resolvidaEm:nowTs(),
+            resolvidaPor:"Sistema (entrega 100% confirmada)"
+          };
         }
         return t;
       }));
@@ -1031,22 +1038,23 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
     // 3d — Reabertura: se status voltou de entregue para parcial/pendente,
     // reativa a última tarefa de acompanhamento resolvida pelo sistema
     if((ns==="parcial"||ns==="pendente") && prevStatus==="entregue"){
-      const ultimaFechada = [...tarefas]
-        .filter(t=>t.pedidoId===pedido.id && t.categoria==="acompanhamento" && t.status==="resolvida" && t.resolvidaPor?.includes("Sistema"))
-        .sort((a,b)=>new Date(b.resolvidaEm||0)-new Date(a.resolvidaEm||0))[0];
-
-      if(ultimaFechada){
-        setTarefas(ts=>ts.map(t=>t.id===ultimaFechada.id?{...t,
-          status:"aberta",
-          resolvidaEm:null,
-          resolvidaPor:null,
+      // Reativa TODAS as tarefas fechadas pelo sistema (exceto boleto)
+      const fechadasSistema = tarefas.filter(t=>
+        t.pedidoId===pedido.id &&
+        t.categoria!=="boleto" &&
+        t.status==="resolvida" &&
+        t.resolvidaPor?.includes("Sistema")
+      );
+      if(fechadasSistema.length>0){
+        setTarefas(ts=>ts.map(t=>fechadasSistema.find(f=>f.id===t.id)?{...t,
+          status:"aberta", resolvidaEm:null, resolvidaPor:null,
           description:t.description+`
 [Reaberta em ${fmtDT(nowTs())} — pedido voltou para ${ns}]`
         }:t));
         onAddMsg(pedido.id,{id:uid(),userId:0,userName:"Sistema",avatar:"🤖",
-          text:`⚠️ Pedido reaberto — status voltou para **${ns}**. Tarefa de acompanhamento reativada.`,
+          text:`⚠️ Pedido reaberto — status voltou para **${ns}**. ${fechadasSistema.length} tarefa(s) reativada(s).`,
           type:"sistema",createdAt:nowTs()});
-        toast("⚠️ Pedido reaberto — tarefa de acompanhamento reativada!");
+        toast("⚠️ Pedido reaberto — tarefas reativadas!");
       }
     }
 
@@ -2381,6 +2389,24 @@ export default function App(){
   const toast = m => setToastMsg(m);
 
   // auto-criar tarefas de atraso
+  // Fecha tarefas órfãs: pedido entregue mas ainda tem tarefas abertas (exceto boleto)
+  useEffect(()=>{
+    setTarefas(ts=>{
+      let changed = false;
+      const next = ts.map(t=>{
+        if(t.status==="resolvida") return t;
+        if(t.categoria==="boleto") return t; // boleto tem ciclo próprio
+        const p = pedidos.find(x=>x.id===t.pedidoId);
+        if(p && p.status==="entregue"){
+          changed = true;
+          return{...t, status:"resolvida", resolvidaEm:nowTs(), resolvidaPor:"Sistema (pedido entregue)"};
+        }
+        return t;
+      });
+      return changed ? next : ts;
+    });
+  },[pedidos]);
+
   useEffect(()=>{
     const hoje = new Date(); hoje.setHours(0,0,0,0);
     const em7  = new Date(hoje); em7.setDate(hoje.getDate()+7);
@@ -2408,8 +2434,23 @@ export default function App(){
       });
     });
 
-    const novos=pedidos.filter(p=>isAtrasado(p)&&!tarefas.find(t=>t.pedidoId===p.id&&t.categoria==="atraso"&&t.status!=="resolvida")).map(p=>({id:uid(),categoria:"atraso",title:"Entrega atrasada — Pedido "+p.numero+" ("+p.fornecedor+")",description:"Previsão: "+fmtD(p.previsaoEntrega)+". Contatar fornecedor.",status:"aberta",pedidoId:p.id,obra:p.obra,assignedTo:Number(p.comprador),due:"",messages:[],createdBy:"Sistema",createdAt:nowTs()}));
+    // Só cria tarefa de atraso se pedido NÃO foi entregue/cancelado
+    const novos=pedidos.filter(p=>
+      isAtrasado(p) &&
+      !["entregue","cancelado"].includes(p.status) &&
+      !tarefas.find(t=>t.pedidoId===p.id&&t.categoria==="atraso"&&t.status!=="resolvida")
+    ).map(p=>({id:uid(),categoria:"atraso",title:"Entrega atrasada — Pedido "+p.numero+" ("+p.fornecedor+")",description:"Previsão: "+fmtD(p.previsaoEntrega)+". Contatar fornecedor.",status:"aberta",pedidoId:p.id,obra:p.obra,assignedTo:Number(p.comprador),due:"",messages:[],createdBy:"Sistema",createdAt:nowTs()}));
     if(novos.length>0) setTarefas(ts=>[...novos.filter(n=>!ts.find(t=>t.pedidoId===n.pedidoId&&t.categoria==="atraso"&&t.status!=="resolvida")),...ts]);
+    // Fecha tarefas de atraso de pedidos já entregues
+    setTarefas(ts=>ts.map(t=>{
+      if(t.categoria==="atraso" && t.status!=="resolvida"){
+        const p = pedidos.find(x=>x.id===t.pedidoId);
+        if(p && ["entregue","cancelado"].includes(p.status)){
+          return{...t,status:"resolvida",resolvidaEm:nowTs(),resolvidaPor:"Sistema (pedido encerrado)"};
+        }
+      }
+      return t;
+    }));
   },[pedidos]);
 
   async function doLogin(){

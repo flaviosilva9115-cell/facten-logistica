@@ -1430,7 +1430,7 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
       {pedido.localEntrega&&<div style={{background:G.alt,borderRadius:8,padding:"6px 12px",marginBottom:8,fontSize:11,color:G.muted}}>
         📍 {pedido.localEntrega}
       </div>}
-      {pedido.observacao&&<div style={{background:"#FFFDE7",border:"1px solid #F4C43040",borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:12}}>📝 {pedido.observacao}</div>}
+      {/* observacao removida do painel — texto jurídico do fornecedor não precisa aparecer */}
 
       {/* TABS */}
       <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
@@ -1494,68 +1494,88 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
 
           {/* tabela */}
           <div style={{border:"1px solid "+G.border,borderRadius:10,overflow:"hidden"}}>
-            <div style={{display:"grid",gridTemplateColumns:"45px 1fr 45px 55px 55px 60px 55px 55px 70px 70px 90px 130px",background:G.nav,padding:"7px 10px",fontSize:8,fontWeight:700,color:"rgba(255,255,255,.7)",textTransform:"uppercase",gap:4}}>
-              <span>Cód.</span><span>Insumo</span><span>Un.</span><span>Pedido</span><span>J.Entregue</span><span style={{color:"#FFD54F"}}>Saldo</span><span>Vl.Unit.</span><span>%IPI</span><span>Vl.Final</span><span style={{color:"#CE93D8"}}>Recebendo</span><span>Prev.</span><span>Status / Ação</span>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 55px 70px 70px 80px 80px 75px 150px",background:G.nav,padding:"8px 12px",fontSize:9,fontWeight:700,color:"rgba(255,255,255,.7)",textTransform:"uppercase",gap:6}}>
+              <span>Insumo</span>
+              <span style={{textAlign:"center"}}>Un.</span>
+              <span style={{textAlign:"center"}}>Pedido</span>
+              <span style={{textAlign:"center"}}>Entregue</span>
+              <span style={{textAlign:"center",color:"#FFD54F"}}>⚖ Saldo</span>
+              <span style={{textAlign:"center",color:"#CE93D8"}}>Recebendo</span>
+              <span style={{textAlign:"right"}}>Vl.Final</span>
+              <span>Status / Ação</span>
             </div>
             {itFilt.map((it,idx)=>{
               const ist = ISTAT[it.status]||ISTAT.pendente;
               return(
-                <div key={it.id} style={{display:"grid",gridTemplateColumns:"45px 1fr 45px 55px 55px 60px 55px 55px 70px 70px 90px 130px",padding:"7px 10px",borderTop:"1px solid "+G.border,background:idx%2===0?"#fff":G.alt,alignItems:"center",gap:4}}>
-                  {/* Código */}
-                  <div style={{fontSize:9,color:G.muted,fontFamily:"monospace",lineHeight:1.2}}>{it.codigo||"—"}</div>
-                  {/* Descrição */}
+                <div key={it.id} style={{display:"grid",gridTemplateColumns:"1fr 55px 70px 70px 80px 80px 75px 150px",padding:"9px 12px",borderTop:"1px solid "+G.border,background:idx%2===0?"#fff":G.alt,alignItems:"center",gap:6}}>
+                  {/* Insumo */}
                   <div>
-                    <div style={{fontWeight:600,fontSize:11,lineHeight:1.3}}>{it.descricao}</div>
-                    {it.norma&&<div style={{fontSize:8,color:G.light}}>Norma: {it.norma}</div>}
-                    {it.updatedBy&&<div style={{fontSize:8,color:G.light}}>Por {it.updatedBy} · {fmtD(it.updatedAt)}</div>}
+                    <div style={{fontWeight:600,fontSize:12,lineHeight:1.3}}>{it.descricao}</div>
+                    <div style={{display:"flex",gap:8,marginTop:2,flexWrap:"wrap"}}>
+                      {it.codigo&&<span style={{fontSize:9,color:G.muted,fontFamily:"monospace"}}>#{it.codigo}</span>}
+                      {it.percIpi&&it.percIpi!=="0"&&<span style={{fontSize:9,color:G.orange}}>IPI {it.percIpi}%</span>}
+                      {it.valorUnitario&&<span style={{fontSize:9,color:G.muted}}>R$ {it.valorUnitario}/un</span>}
+                      {it.dataPrevisao&&<span style={{fontSize:9,color:G.blue}}>📅 {fmtD(it.dataPrevisao)}</span>}
+                      {it.updatedBy&&<span style={{fontSize:9,color:G.light}}>✏️ {it.updatedBy} · {fmtD(it.updatedAt)}</span>}
+                    </div>
                   </div>
-                  {/* Unidade */}
-                  <div style={{fontSize:10,color:G.muted,textAlign:"center"}}>{it.unidade}</div>
-                  {/* Qtd Pedido */}
-                  <div style={{fontSize:12,fontWeight:800,textAlign:"center",color:G.text}}>{it.quantidade}</div>
-                  {/* Já Entregue */}
-                  <div style={{fontSize:12,fontWeight:700,textAlign:"center",color:it.qtdEntregue>0?G.green:G.muted}}>{it.qtdEntregue||0}</div>
-                  {/* Saldo */}
+                  {/* Un */}
+                  <div style={{fontSize:11,color:G.muted,textAlign:"center"}}>{it.unidade}</div>
+                  {/* Pedido */}
+                  <div style={{fontSize:13,fontWeight:800,textAlign:"center"}}>{it.quantidade}</div>
+                  {/* Entregue */}
+                  <div style={{fontSize:13,fontWeight:700,textAlign:"center",color:it.qtdEntregue>0?G.green:G.light}}>
+                    {it.qtdEntregue||0}
+                  </div>
+                  {/* Saldo — destaque especial */}
                   {(()=>{
-                    const saldo = it.quantidade - (it.qtdEntregue||0);
-                    return <div style={{fontSize:12,fontWeight:800,textAlign:"center",color:saldo>0?G.orange:G.green,background:saldo>0?"#FFF8E1":"#E8F5E9",borderRadius:4,padding:"2px 4px"}}>{saldo}</div>;
+                    const saldo = it.quantidade-(it.qtdEntregue||0);
+                    return(
+                      <div style={{textAlign:"center"}}>
+                        <div style={{
+                          fontSize:14,fontWeight:900,
+                          color:saldo===0?G.green:G.orange,
+                          background:saldo===0?"#E8F5E9":"#FFF8E1",
+                          border:"2px solid "+(saldo===0?G.green:G.orange),
+                          borderRadius:8,padding:"3px 6px",lineHeight:1
+                        }}>{saldo}</div>
+                        {saldo>0&&<div style={{fontSize:8,color:G.orange,marginTop:2}}>pendente</div>}
+                        {saldo===0&&<div style={{fontSize:8,color:G.green,marginTop:2}}>completo</div>}
+                      </div>
+                    );
                   })()}
-                  {/* Vl Unit */}
-                  <div style={{fontSize:10,textAlign:"right",color:G.muted}}>R$ {it.valorUnitario||"—"}</div>
-                  {/* %IPI */}
-                  <div style={{fontSize:10,textAlign:"center",color:it.percIpi&&it.percIpi!=="0"?G.orange:G.light}}>{it.percIpi||"0"}%</div>
-                  {/* Vl Final */}
-                  <div style={{fontSize:11,fontWeight:700,textAlign:"right",color:G.greenDark}}>R$ {it.valorFinal||it.valorUnitario||"—"}</div>
-                  {/* Recebendo (input) */}
-                  <div>
+                  {/* Recebendo */}
+                  <div style={{textAlign:"center"}}>
                     {isAlmox&&!isCancelado
-                      ?<input type="number" min="0" max={it.quantidade-(it.qtdEntregue||0)>0?it.quantidade:it.quantidade}
+                      ?<input type="number" min="0" max={it.quantidade}
                           value={itensEdit[it.id]!==undefined?itensEdit[it.id]:""}
                           onChange={e=>setQtd(it.id,e.target.value)}
                           placeholder={String(it.quantidade-(it.qtdEntregue||0))}
-                          title={"Saldo a receber: "+(it.quantidade-(it.qtdEntregue||0))+" "+it.unidade}
-                          style={{...IB,width:62,padding:"4px 6px",fontSize:12,textAlign:"center",
+                          title={"Saldo: "+(it.quantidade-(it.qtdEntregue||0))+" "+it.unidade}
+                          style={{...IB,width:65,padding:"5px 6px",fontSize:13,textAlign:"center",
+                            fontWeight:700,
                             borderColor:itensEdit[it.id]!==undefined?G.purple:"#DDE8DD",
+                            borderWidth:"2px",
                             background:itensEdit[it.id]!==undefined?"#F3E5F5":"#fff"}}/>
-                      :<span style={{fontSize:11,color:G.muted}}>—</span>}
+                      :<span style={{fontSize:12,color:G.muted}}>—</span>}
                   </div>
-                  {/* Prev. Entrega */}
-                  <div style={{fontSize:9,color:G.muted,textAlign:"center"}}>{fmtD(it.dataPrevisao||pedido.previsaoEntrega)||"—"}</div>
+                  {/* Vl Final */}
+                  <div style={{fontSize:11,fontWeight:700,textAlign:"right",color:G.greenDark}}>
+                    R$ {it.valorFinal||it.valorUnitario||"—"}
+                  </div>
                   {/* Status / Ação */}
-                  <div style={{display:"flex",gap:3,alignItems:"center",flexWrap:"wrap"}}>
-                    <Chip color={ist.color} bg={ist.bg} style={{fontSize:9}}>{ist.icon} {ist.label}</Chip>
+                  <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+                    <Chip color={ist.color} bg={ist.bg} style={{fontSize:10}}>{ist.icon} {ist.label}</Chip>
                     {isAlmox&&!isCancelado&&it.status!=="entregue"&&(
-                      <button
-                        onClick={()=>{
-                          // "Todos entregues": preenche com o saldo restante
-                          const saldo = it.quantidade - (it.qtdEntregue||0);
-                          setItensEdit(prev=>({...prev,[it.id]:saldo}));
-                        }}
-                        title={"Marcar saldo ("+( it.quantidade-(it.qtdEntregue||0))+" "+it.unidade+") como recebido"}
-                        style={{padding:"2px 5px",borderRadius:5,border:"none",cursor:"pointer",background:G.green+"22",color:G.greenDark,fontSize:10,fontWeight:700}}>✅</button>
+                      <button onClick={()=>{const s=it.quantidade-(it.qtdEntregue||0);setItensEdit(prev=>({...prev,[it.id]:s}));}}
+                        title={"Preencher saldo ("+( it.quantidade-(it.qtdEntregue||0))+" "+it.unidade+")"}
+                        style={{padding:"3px 7px",borderRadius:5,border:"none",cursor:"pointer",background:G.green+"22",color:G.greenDark,fontSize:11,fontWeight:700}}>✅</button>
                     )}
-                    {isAlmox&&it.status==="entregue"&&<button onClick={()=>setItensEdit(prev=>({...prev,[it.id]:0}))} style={{padding:"2px 5px",borderRadius:5,border:"none",cursor:"pointer",background:G.gold+"22",color:G.goldDark,fontSize:10,fontWeight:700}}>↩</button>}
-                    {itensEdit[it.id]!==undefined&&<span style={{fontSize:8,color:G.purple,fontWeight:700}}>•pend</span>}
+                    {isAlmox&&it.status==="entregue"&&(
+                      <button onClick={()=>setItensEdit(prev=>({...prev,[it.id]:0}))}
+                        style={{padding:"3px 7px",borderRadius:5,border:"none",cursor:"pointer",background:G.gold+"22",color:G.goldDark,fontSize:11,fontWeight:700}}>↩</button>
+                    )}
+                    {itensEdit[it.id]!==undefined&&<span style={{fontSize:9,color:G.purple,fontWeight:800}}>● pend.</span>}
                   </div>
                 </div>
               );

@@ -2188,6 +2188,9 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
   const isCompU  = ["comprador"].includes(cu.role);
   const isCoordU = cu.role==="coordenador";
 
+  // Limpa seleção ao trocar filtros
+  useEffect(()=>{ setSelTarefa(null); },[filterCat,filterStat]);
+
   const filtered=tarefas.filter(t=>{
     // Filtro por papel:
     // Almoxarife → só vê tarefas atribuídas a ele (geradas pelo fluxo boleto/parcial)
@@ -2314,8 +2317,7 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
                       <div key={t.id} onClick={()=>setSelTarefa(t)}
                         style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:10,
                           background:G.surface,border:"1px solid "+g.border,cursor:"pointer",
-                          borderLeft:"3px solid "+g.color,
-                          boxShadow:selTarefa?.id===t.id?"0 0 0 2px "+g.color+"40":"none"}}
+                          borderLeft:"3px solid "+g.color}}
                         onMouseEnter={e=>e.currentTarget.style.background=g.bg}
                         onMouseLeave={e=>e.currentTarget.style.background=G.surface}>
                         <span style={{fontSize:15,flexShrink:0}}>{cfg.icon}</span>
@@ -2344,43 +2346,96 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
         })()}
       </div>}
 
-    {/* DETALHE DA TAREFA */}
-    {tDetail&&(
-      <div style={{background:G.surface,border:"1px solid "+G.border,borderRadius:12,padding:18,marginTop:14}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,gap:10,flexWrap:"wrap"}}>
-          <div style={{flex:1}}>
-            <div style={{fontSize:14,fontWeight:800,marginBottom:4}}>{tDetail.title}</div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <span style={{fontSize:11,background:TCAT[tDetail.categoria]?.bg||G.alt,color:TCAT[tDetail.categoria]?.color||G.muted,borderRadius:10,padding:"2px 8px",fontWeight:700}}>{TCAT[tDetail.categoria]?.icon} {TCAT[tDetail.categoria]?.label}</span>
-              {Object.entries(TSTAT).map(([k,v])=>{
-                const isBlocked = k==="resolvida" && tDetail.categoria==="boleto" && !(tDetail.anexos||[]).length;
-                return <button key={k} onClick={()=>{if(!isBlocked){quickStatus(tDetail.id,k);setSelTarefa(st=>({...st,status:k}));}else toast("⚠️ Anexe o boleto antes de concluir.");}}
-                  title={isBlocked?"Anexe o boleto primeiro":v.label}
-                  style={{padding:"4px 12px",borderRadius:20,fontSize:11,fontWeight:700,cursor:isBlocked?"not-allowed":"pointer",opacity:isBlocked?.4:1,border:"2px solid "+(tDetail.status===k?v.color:"#DDE8DD"),background:tDetail.status===k?v.bg:"none",color:tDetail.status===k?v.color:G.muted}}>{v.icon} {v.label}</button>;
-              })}
-            </div>
-          </div>
-          <button onClick={()=>setSelTarefa(null)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:G.muted}}>✕</button>
-        </div>
-        {tDetail.description&&<div style={{fontSize:12,color:G.muted,marginBottom:12,background:G.alt,borderRadius:8,padding:"8px 12px"}}>{tDetail.description}</div>}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"0 12px",marginBottom:12}}>
-          <Fld label="Responsável">
-            <Sel value={tDetail.assignedTo||""} onChange={e=>{const v=Number(e.target.value);setTarefas(ts=>ts.map(t=>t.id===tDetail.id?{...t,assignedTo:v}:t));setSelTarefa(st=>({...st,assignedTo:v}));}}>
-              <option value="">—</option>
-              {users.filter(u=>u.active).map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
-            </Sel>
-          </Fld>
-          <Fld label="Prazo">
-            <Inp type="date" value={tDetail.due||""} onChange={e=>{const v=e.target.value;setTarefas(ts=>ts.map(t=>t.id===tDetail.id?{...t,due:v}:t));setSelTarefa(st=>({...st,due:v}));}}/>
-          </Fld>
-          <Fld label="Criado por"><div style={{padding:"9px 12px",fontSize:13,color:G.muted}}>{tDetail.createdBy} · {fmtD(tDetail.createdAt)}</div></Fld>
-        </div>
-        {tDetail.pedidoId&&<div style={{fontSize:12,color:G.blue,marginTop:4,fontWeight:600}}>
-          📋 Pedido: {pedidos.find(p=>p.id===tDetail.pedidoId)?.numero||tDetail.pedidoId}
-        </div>}
-      </div>
-    )}
+    <TarefaDetalheModal
+      tarefa={tDetail}
+      tarefas={tarefas} setTarefas={setTarefas}
+      users={users} pedidos={pedidos}
+      quickStatus={quickStatus}
+      toast={toast}
+      onClose={()=>setSelTarefa(null)}
+    />
   </div>;
+}
+
+// ── MODAL DE DETALHE DE TAREFA ────────────────────────────────────────────────
+function TarefaDetalheModal({tarefa, tarefas, setTarefas, users, pedidos, quickStatus, toast, onClose}){
+  if(!tarefa) return null;
+  const TSTAT_LOCAL = {aberta:{label:"Aberta",icon:"🔴",color:"#E53935",bg:"#FFEBEE"},andamento:{label:"Em Andamento",icon:"🟡",color:"#F9A825",bg:"#FFFDE7"},resolvida:{label:"Resolvida",icon:"🟢",color:"#43A047",bg:"#E8F5E9"}};
+  const catCfg = {acompanhamento:{label:"Acompanhamento",icon:"📋",color:"#43A047",bg:"#E8F5E9"},boleto:{label:"Boleto/NF",icon:"🧾",color:"#8E24AA",bg:"#F3E5F5"},duvida:{label:"Dúvida",icon:"❓",color:"#1E88E5",bg:"#E3F2FD"},atraso:{label:"Atraso",icon:"⚠️",color:"#FB8C00",bg:"#FFF3E0"}};
+  const cfg = catCfg[tarefa.categoria]||catCfg.acompanhamento;
+  const ped = pedidos.find(p=>p.id===tarefa.pedidoId);
+  return(
+    <Modal open={!!tarefa} onClose={onClose} title={cfg.icon+" "+cfg.label} width={620}
+      footer={<Btn variant="secondary" onClick={onClose}>Fechar</Btn>}>
+      {/* Título */}
+      <div style={{fontSize:15,fontWeight:800,marginBottom:12,lineHeight:1.4}}>{tarefa.title}</div>
+      {/* Status buttons */}
+      <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+        {Object.entries(TSTAT_LOCAL).map(([k,v])=>{
+          const isBlocked = k==="resolvida" && tarefa.categoria==="boleto" && !(tarefa.anexos||[]).length;
+          return(
+            <button key={k} onClick={()=>{
+              if(isBlocked){toast("⚠️ Anexe o boleto antes de concluir.");return;}
+              setTarefas(ts=>ts.map(t=>t.id===tarefa.id?{...t,status:k}:t));
+              quickStatus(tarefa.id,k);
+            }}
+            style={{padding:"6px 14px",borderRadius:20,fontSize:12,fontWeight:700,
+              cursor:isBlocked?"not-allowed":"pointer",opacity:isBlocked?.4:1,
+              border:"2px solid "+(tarefa.status===k?v.color:"#DDE8DD"),
+              background:tarefa.status===k?v.bg:"none",
+              color:tarefa.status===k?v.color:G.muted}}>
+              {v.icon} {v.label}
+            </button>
+          );
+        })}
+      </div>
+      {/* Descrição */}
+      {tarefa.description&&(
+        <div style={{background:G.alt,borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:13,color:G.muted,lineHeight:1.6}}>
+          {tarefa.description}
+        </div>
+      )}
+      {/* Pedido link */}
+      {ped&&(
+        <div style={{background:"#E3F2FD",borderRadius:8,padding:"8px 14px",marginBottom:14,fontSize:12,color:G.blue,fontWeight:600}}>
+          📋 Pedido {ped.numero} — {ped.fornecedor}
+        </div>
+      )}
+      {/* Campos */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
+        <Fld label="Responsável">
+          <Sel value={tarefa.assignedTo||""} onChange={e=>{
+            const v=Number(e.target.value);
+            setTarefas(ts=>ts.map(t=>t.id===tarefa.id?{...t,assignedTo:v}:t));
+          }}>
+            <option value="">—</option>
+            {users.filter(u=>u.active).map(u=><option key={u.id} value={u.id}>{u.name}</option>)}
+          </Sel>
+        </Fld>
+        <Fld label="Prazo">
+          <Inp type="date" value={tarefa.due||""} onChange={e=>{
+            const v=e.target.value;
+            setTarefas(ts=>ts.map(t=>t.id===tarefa.id?{...t,due:v}:t));
+          }}/>
+        </Fld>
+      </div>
+      <div style={{fontSize:11,color:G.light,marginTop:8}}>
+        Criado por {tarefa.createdBy} em {fmtDT(tarefa.createdAt)}
+      </div>
+      {/* Anexos do boleto */}
+      {tarefa.categoria==="boleto"&&(tarefa.anexos||[]).length>0&&(
+        <div style={{marginTop:12}}>
+          <div style={{fontSize:11,fontWeight:700,color:G.muted,textTransform:"uppercase",marginBottom:6}}>Arquivos Anexados</div>
+          {tarefa.anexos.map(a=>(
+            <a key={a.id} href={a.data} download={a.name}
+              style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"#E8F5E9",borderRadius:7,marginBottom:4,fontSize:12,color:G.greenDark,textDecoration:"none",fontWeight:600}}>
+              ⬇ {a.name}
+            </a>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
 }
 
 function PainelAcompanhamento({open, onClose, pedidos, tarefas, users, obras, onOpenPedido}) {

@@ -1236,35 +1236,38 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
     // ── Atualiza pedido
     onUpdateItens(pedido.id, novosItens, pedido.status, {previsaoEntrega: novaPrevisao});
 
-    // ── Sincroniza tarefa de atraso deste pedido
+    // ── Atualiza tarefas: atraso + acompanhamento em UMA única chamada
     setTarefas(ts=>ts.map(t=>{
-      if(t.pedidoId!==pedido.id || t.categoria!=="atraso") return t;
-      if(aindaAtrasado){
-        // Nova data ainda está no passado → mantém aberta, atualiza prazo e descrição
+      if(t.pedidoId!==pedido.id) return t;
+
+      // Tarefas de ATRASO
+      if(t.categoria==="atraso"){
+        if(aindaAtrasado){
+          return{...t,
+            due: novaPrevisao,
+            title: `Entrega atrasada — Pedido ${pedido.numero} (${pedido.fornecedor||forn.nome})`,
+            description: `Reprogramado por ${cu.name} em ${fmtDT(nowTs())}. Nova previsão: ${fmtD(novaPrevisao)}. Ainda em atraso.`,
+            status: "aberta",
+          };
+        } else {
+          return{...t,
+            due: novaPrevisao,
+            status: "resolvida",
+            resolvidaEm: nowTs(),
+            resolvidaPor: `Sistema (reprogramado por ${cu.name} para ${fmtD(novaPrevisao)})`,
+          };
+        }
+      }
+
+      // Tarefas de ACOMPANHAMENTO abertas
+      if(t.categoria==="acompanhamento" && t.status!=="resolvida"){
         return{...t,
           due: novaPrevisao,
-          title: `Entrega atrasada — Pedido ${pedido.numero} (${pedido.fornecedor||forn.nome})`,
-          description: `Reprogramado por ${cu.name} em ${fmtDT(nowTs())}. Nova previsão: ${fmtD(novaPrevisao)}. Ainda em atraso — contatar fornecedor.`,
-          status: "aberta",
-        };
-      } else {
-        // Nova data está no futuro → fecha a tarefa de atraso
-        return{...t,
-          due: novaPrevisao,
-          status: "resolvida",
-          resolvidaEm: nowTs(),
-          resolvidaPor: `Sistema (reprogramado por ${cu.name} para ${fmtD(novaPrevisao)})`,
+          title: t.title.replace(/^⚠️\s*Entrega em \d+d\s*—\s*/,""), // limpa prefixo urgência
         };
       }
-    }));
 
-    // ── Atualiza data de TODAS as tarefas de acompanhamento abertas deste pedido
-    setTarefas(ts=>ts.map(t=>{
-      if(t.pedidoId!==pedido.id || t.categoria!=="acompanhamento" || t.status==="resolvida") return t;
-      return{...t,
-        due: novaPrevisao,
-        title: t.title.replace(/⚠️.*?—\s*/,""), // remove prefixo urgência antigo se houver
-      };
+      return t;
     }));
 
     onAddMsg(pedido.id, {id:uid(), userId:cu.id, userName:cu.name, avatar:cu.avatar,

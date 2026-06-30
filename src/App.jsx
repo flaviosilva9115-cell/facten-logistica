@@ -12,8 +12,9 @@ const sb = SB_URL ? createClient(SB_URL, SB_ANON) : null;
 async function dbGet(table, fallback=[]) {
   if(!sb) return fallback;
   try {
-    const { data, error } = await sb.from(table).select("*").order("id");
+    const { data, error, count } = await sb.from(table).select("*", {count:"exact"}).order("id");
     if(error) throw error;
+    console.log(`[dbGet] ${table}: ${data?.length||0} registros (count exato: ${count})`);
     return data || fallback;
   } catch(e) {
     console.warn("Supabase dbGet error:", table, e.message);
@@ -2146,22 +2147,27 @@ function Dashboard({pedidos,tarefas,users,obras,fornecedores,cu,onOpenPedido,onO
   const [filtroComprador, setFiltroComprador] = useState("all");
   const compradoresLista = users.filter(u=>["comprador","coordenador"].includes(u.role)&&u.active);
 
+  // Obras do almoxarife (hierarquia: só vê o que é da sua responsabilidade)
+  const minhasObrasIds = isAlmoxU ? obras.filter(o=>String(o.almoxarife)===String(cu.id)).map(o=>o.id) : [];
+
   // Pedidos visíveis no Dashboard:
+  // - Almoxarife  → SOMENTE pedidos das obras onde ele é o responsável
   // - Coordenador → todos, ou filtrados por comprador selecionado
   // - Comprador   → todos (consistente com o resto do sistema)
-  // - Almoxarife  → todos (mantém os cards/gráficos completos; o card pessoal abaixo é dele)
-  const pedidosVisiveis = isCoordU && filtroComprador!=="all"
+  const pedidosVisiveis = isAlmoxU
+    ? pedidos.filter(p=>minhasObrasIds.some(oid=>String(oid)===String(p.obra)))
+    : isCoordU && filtroComprador!=="all"
     ? pedidos.filter(p=>String(p.comprador)===String(filtroComprador))
     : pedidos;
 
   const atrasados=pedidosVisiveis.filter(isAtrasado);
   const byStat=Object.entries(STATUS).filter(([k])=>k!=="atrasado").map(([k,v])=>({name:v.label.split(" ")[0],value:pedidosVisiveis.filter(p=>p.status===k).length,color:v.color}));
-  const byObra=obras.filter(o=>o.active).map(o=>({name:o.code,E:pedidosVisiveis.filter(p=>String(p.obra)===String(o.id)&&p.status==="entregue").length,P:pedidosVisiveis.filter(p=>String(p.obra)===String(o.id)&&p.status==="pendente").length,T:pedidosVisiveis.filter(p=>String(p.obra)===String(o.id)).length})).filter(o=>o.T>0).sort((a,b)=>b.T-a.T).slice(0,8);
+  const byObra=obras.filter(o=>o.active&&(!isAlmoxU||minhasObrasIds.some(oid=>String(oid)===String(o.id)))).map(o=>({name:o.code,E:pedidosVisiveis.filter(p=>String(p.obra)===String(o.id)&&p.status==="entregue").length,P:pedidosVisiveis.filter(p=>String(p.obra)===String(o.id)&&p.status==="pendente").length,T:pedidosVisiveis.filter(p=>String(p.obra)===String(o.id)).length})).filter(o=>o.T>0).sort((a,b)=>b.T-a.T).slice(0,8);
   const week=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);const ds=d.toISOString().slice(0,10);return{dia:d.toLocaleDateString("pt-BR",{weekday:"short"}),Criados:pedidosVisiveis.filter(p=>p.createdAt?.slice(0,10)===ds).length,Entregues:pedidosVisiveis.filter(p=>p.createdAt?.slice(0,10)===ds&&p.status==="entregue").length};});
 
-  const meusObras = isAlmoxU ? obras.filter(o=>(cu.obras||[]).includes(o.id)) : [];
+  const meusObras = isAlmoxU ? obras.filter(o=>minhasObrasIds.some(oid=>String(oid)===String(o.id))) : [];
   const meusPedidos = isAlmoxU
-    ? pedidos.filter(p=>meusObras.find(o=>String(o.id)===String(p.obra))).slice(0,5)
+    ? pedidosVisiveis.slice(0,5)
     : isCoordU
     ? pedidosVisiveis.slice(0,5)
     : pedidos.filter(p=>String(p.comprador)===String(cu.id)).slice(0,5);
@@ -2172,9 +2178,9 @@ function Dashboard({pedidos,tarefas,users,obras,fornecedores,cu,onOpenPedido,onO
     {l:"Atrasados",v:atrasados.length,c:G.orange,i:"⚠️",bg:"#FBE9E7"},
     {l:"Parciais",v:pedidosVisiveis.filter(p=>p.status==="parcial").length,c:G.blue,i:"📦",bg:"#E3F2FD"},
     {l:"Entregues",v:pedidosVisiveis.filter(p=>p.status==="entregue").length,c:G.green,i:"✅",bg:"#E8F5E9"},
-    {l:"Tarefas Abertas",v:tarefas.filter(t=>t.status==="aberta").length,c:G.red,i:"🔴",bg:"#FFEBEE"},
+    {l:"Tarefas Abertas",v:tarefas.filter(t=>t.status==="aberta"&&(!isAlmoxU||String(t.assignedTo)===String(cu.id))).length,c:G.red,i:"🔴",bg:"#FFEBEE"},
     {l:"Fornecedores",v:fornecedores.length,c:G.teal,i:"🏢",bg:"#E0F2F1"},
-    {l:"Obras Ativas",v:obras.filter(o=>o.active).length,c:G.purple,i:"🏗️",bg:"#F3E5F5"},
+    {l:isAlmoxU?"Minhas Obras":"Obras Ativas",v:isAlmoxU?meusObras.length:obras.filter(o=>o.active).length,c:G.purple,i:"🏗️",bg:"#F3E5F5"},
   ];
 
   return<div>
@@ -2362,15 +2368,16 @@ function TarefasPage({tarefas,setTarefas,pedidos,setPedidos,users,obras,cu,toast
   // Limpa seleção ao trocar filtros
   useEffect(()=>{ setSelTarefa(null); },[filterCat,filterStat,filterComprador]);
 
-  const filtered=tarefas.filter(t=>{
-    // Filtro por papel:
-    // Almoxarife            → só vê tarefas atribuídas a ele (fluxo boleto/parcial das suas obras)
-    // Comprador/Coordenador → veem TODAS por padrão; podem filtrar por "Minhas" ou por comprador específico
-    if(isAlmoxU && String(t.assignedTo)!==String(cu.id)) return false;
-    if(!isAlmoxU){
-      if(filterComprador==="mine" && String(t.assignedTo)!==String(cu.id)) return false;
-      if(filterComprador!=="mine" && filterComprador!=="all" && String(t.assignedTo)!==String(filterComprador)) return false;
-    }
+  // Tarefas dentro da hierarquia do usuário (antes dos filtros de categoria/status)
+  // Almoxarife só enxerga o que está atribuído a ele — nunca o painel geral
+  const tarefasDoUsuario = tarefas.filter(t=>{
+    if(isAlmoxU) return String(t.assignedTo)===String(cu.id);
+    if(filterComprador==="mine") return String(t.assignedTo)===String(cu.id);
+    if(filterComprador!=="all") return String(t.assignedTo)===String(filterComprador);
+    return true;
+  });
+
+  const filtered=tarefasDoUsuario.filter(t=>{
     // filtros de categoria e status
     if(filterCat!=="all"&&t.categoria!==filterCat)return false;
     if(filterStat==="abertas"&&t.status==="resolvida")return false;
@@ -2423,7 +2430,7 @@ function TarefasPage({tarefas,setTarefas,pedidos,setPedidos,users,obras,cu,toast
     if(selTarefa?.id===id)setSelTarefa(st=>({...st,status}));
   }
 
-  const catCounts=Object.keys(TCAT).reduce((acc,k)=>({...acc,[k]:tarefas.filter(t=>t.categoria===k&&t.status!=="resolvida").length}),{});
+  const catCounts=Object.keys(TCAT).reduce((acc,k)=>({...acc,[k]:tarefasDoUsuario.filter(t=>t.categoria===k&&t.status!=="resolvida").length}),{});
   const tDetail=selTarefa?tarefas.find(t=>t.id===selTarefa.id)||selTarefa:null;
 
   // Lista de compradores/coordenadores para o seletor
@@ -2450,7 +2457,7 @@ function TarefasPage({tarefas,setTarefas,pedidos,setPedidos,users,obras,cu,toast
     {/* filtros e controles */}
     <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
       <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-        <button onClick={()=>setFilterCat("all")} style={{padding:"6px 12px",borderRadius:8,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:filterCat==="all"?G.green:G.alt,color:filterCat==="all"?"#fff":G.muted}}>Todas ({tarefas.filter(t=>t.status!=="resolvida").length})</button>
+        <button onClick={()=>setFilterCat("all")} style={{padding:"6px 12px",borderRadius:8,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:filterCat==="all"?G.green:G.alt,color:filterCat==="all"?"#fff":G.muted}}>Todas ({tarefasDoUsuario.filter(t=>t.status!=="resolvida").length})</button>
         {Object.entries(TCAT).map(([k,v])=><button key={k} onClick={()=>setFilterCat(k)} style={{padding:"6px 12px",borderRadius:8,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:filterCat===k?v.color:G.alt,color:filterCat===k?"#fff":G.muted}}>{v.icon} {v.label} {catCounts[k]>0&&"("+catCounts[k]+")"}</button>)}
       </div>
       <div style={{flex:1}}/>
@@ -3398,14 +3405,22 @@ export default function App(){
   },[search]);
 
   const isComp=["comprador","coordenador"].includes(cu.role);
-  // Badge de tarefas: só mostra as do usuário atual
+  const isAlmoxNav=["almoxarife","aux_almoxarife"].includes(cu.role);
+
+  // Hierarquia: almoxarife só conta pedidos das suas obras
+  const minhasObrasNav = isAlmoxNav ? obras.filter(o=>String(o.almoxarife)===String(cu.id)).map(o=>o.id) : [];
+  const pedidosAtrasadosCount = isAlmoxNav
+    ? pedidos.filter(p=>isAtrasado(p) && minhasObrasNav.some(oid=>String(oid)===String(p.obra))).length
+    : pedidos.filter(p=>isAtrasado(p)).length;
+
+  // Badge de tarefas: só mostra as do usuário atual (já é hierárquico por natureza)
   const minhasTarefasAbertas = tarefas.filter(t=>
     String(t.assignedTo)===String(cu.id) && t.status==="aberta"
   ).length;
 
   const NAV=[
     {id:"dashboard",icon:"📊",label:"Dashboard"},
-    {id:"pedidos",  icon:"📋",label:"Pedidos",   badge:pedidos.filter(p=>isAtrasado(p)).length||null,badgeColor:G.orange},
+    {id:"pedidos",  icon:"📋",label:"Pedidos",   badge:pedidosAtrasadosCount||null,badgeColor:G.orange},
     {id:"tarefas",  icon:"✅",label:"Tarefas",   badge:minhasTarefasAbertas||null,badgeColor:G.red},
   ];
 
@@ -3497,6 +3512,9 @@ export default function App(){
         {/* TOPBAR */}
         <div style={{background:G.surface,borderBottom:"1px solid "+G.border,padding:"0 24px",height:52,display:"flex",alignItems:"center",gap:10,position:"sticky",top:0,zIndex:50}}>
           <h1 style={{margin:0,fontSize:17,fontWeight:800,color:G.text}}>{page==="dashboard"?"Dashboard":page==="pedidos"?"Pedidos de Compra":"Tarefas"}</h1>
+          {page==="pedidos"&&!isAlmoxCu&&<span style={{fontSize:10,color:G.muted,background:G.alt,borderRadius:6,padding:"3px 8px"}}>
+            {pedidos.length} no total · {filteredP.length} exibidos
+          </span>}
           <div style={{flex:1}}/>
           {page==="pedidos"&&<>
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Nº pedido ou fornecedor…" style={{padding:"0 10px",height:32,borderRadius:8,border:"1.5px solid #DDE8DD",fontSize:12,width:200,outline:"none",fontFamily:"Inter,sans-serif"}}/>

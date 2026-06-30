@@ -2220,20 +2220,18 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
   const isCompU  = ["comprador"].includes(cu.role);
   const isCoordU = cu.role==="coordenador";
 
-  // Filtro de comprador — só relevante para coordenador (ele pode ver "todos" ou um específico)
-  const [filterComprador, setFilterComprador] = useState("mine"); // "mine" | "all" | userId
+  // Filtro de comprador — disponível para Comprador e Coordenador (visão "Todos" por padrão)
+  const [filterComprador, setFilterComprador] = useState("all"); // "all" | "mine" | userId
 
   // Limpa seleção ao trocar filtros
   useEffect(()=>{ setSelTarefa(null); },[filterCat,filterStat,filterComprador]);
 
   const filtered=tarefas.filter(t=>{
     // Filtro por papel:
-    // Almoxarife    → só vê tarefas atribuídas a ele (fluxo boleto/parcial das suas obras)
-    // Comprador     → vê só as tarefas atribuídas a ele
-    // Coordenador   → por padrão vê só as DELE; pode trocar para "Todos" ou um comprador específico
+    // Almoxarife            → só vê tarefas atribuídas a ele (fluxo boleto/parcial das suas obras)
+    // Comprador/Coordenador → veem TODAS por padrão; podem filtrar por "Minhas" ou por comprador específico
     if(isAlmoxU && String(t.assignedTo)!==String(cu.id)) return false;
-    if(isCompU  && String(t.assignedTo)!==String(cu.id)) return false;
-    if(isCoordU){
+    if(!isAlmoxU){
       if(filterComprador==="mine" && String(t.assignedTo)!==String(cu.id)) return false;
       if(filterComprador!=="mine" && filterComprador!=="all" && String(t.assignedTo)!==String(filterComprador)) return false;
     }
@@ -2280,23 +2278,23 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
   const catCounts=Object.keys(TCAT).reduce((acc,k)=>({...acc,[k]:tarefas.filter(t=>t.categoria===k&&t.status!=="resolvida").length}),{});
   const tDetail=selTarefa?tarefas.find(t=>t.id===selTarefa.id)||selTarefa:null;
 
-  // Lista de compradores/coordenadores para o seletor (só relevante para coordenador)
+  // Lista de compradores/coordenadores para o seletor
   const compradoresLista = users.filter(u=>["comprador","coordenador"].includes(u.role)&&u.active);
 
   return<div>
-    {/* filtro de comprador — só coordenador vê */}
-    {isCoordU&&(
+    {/* filtro de comprador — disponível para Comprador e Coordenador */}
+    {!isAlmoxU&&(
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,background:G.alt,borderRadius:10,padding:"8px 14px",flexWrap:"wrap"}}>
-        <span style={{fontSize:12,fontWeight:700,color:G.muted}}>👤 Visualizando tarefas de:</span>
+        <span style={{fontSize:12,fontWeight:700,color:G.muted}}>👤 Filtrar tarefas de:</span>
         <Sel value={filterComprador} onChange={e=>setFilterComprador(e.target.value)} style={{width:240,padding:"5px 10px",fontSize:12}}>
+          <option value="all">🔍 Todos (visão completa)</option>
           <option value="mine">Minhas tarefas ({cu.name})</option>
-          <option value="all">🔍 Todos os compradores</option>
           {compradoresLista.filter(u=>String(u.id)!==String(cu.id)).map(u=>
             <option key={u.id} value={u.id}>{u.name}{u.role==="coordenador"?" (Coordenador)":""}</option>
           )}
         </Sel>
-        {filterComprador!=="mine"&&<Chip color={G.blue} bg="#E3F2FD" style={{fontSize:10}}>
-          {filterComprador==="all"?"Vendo tudo":"Filtrado"}
+        {filterComprador!=="all"&&<Chip color={G.blue} bg="#E3F2FD" style={{fontSize:10}}>
+          {filterComprador==="mine"?"Só minhas":"Filtrado"}
         </Chip>}
       </div>
     )}
@@ -2843,16 +2841,80 @@ export default function App(){
     }
     loadFromDb();
 
-    // Sincronização periódica: busca pedidos/tarefas novos de outros usuários a cada 30s
-    const interval = setInterval(async ()=>{
-      if(!sb) return;
+    // ── REALTIME: escuta mudanças instantâneas no Supabase ──────────────────
+    if(!sb) return;
+
+    const channel = sb.channel("facten-realtime")
+      .on("postgres_changes", {event:"*", schema:"public", table:"pedidos"}, payload=>{
+        if(payload.eventType==="DELETE"){
+          setPedidos(ps=>ps.filter(p=>String(p.id)!==String(payload.old.id)));
+        } else {
+          const novo = pedidoFromDb(payload.new);
+          setPedidos(ps=>{
+            const existe = ps.find(p=>String(p.id)===String(novo.id));
+            return existe ? ps.map(p=>String(p.id)===String(novo.id)?novo:p) : [novo,...ps];
+          });
+        }
+      })
+      .on("postgres_changes", {event:"*", schema:"public", table:"tarefas"}, payload=>{
+        if(payload.eventType==="DELETE"){
+          setTarefas(ts=>ts.filter(t=>String(t.id)!==String(payload.old.id)));
+        } else {
+          const nova = tarefaFromDb(payload.new);
+          setTarefas(ts=>{
+            const existe = ts.find(t=>String(t.id)===String(nova.id));
+            return existe ? ts.map(t=>String(t.id)===String(nova.id)?nova:t) : [nova,...ts];
+          });
+        }
+      })
+      .on("postgres_changes", {event:"*", schema:"public", table:"obras"}, payload=>{
+        if(payload.eventType==="DELETE"){
+          setObras(os=>os.filter(o=>String(o.id)!==String(payload.old.id)));
+        } else {
+          const nova = obraFromDb(payload.new);
+          setObras(os=>{
+            const existe = os.find(o=>String(o.id)===String(nova.id));
+            return existe ? os.map(o=>String(o.id)===String(nova.id)?nova:o) : [...os,nova];
+          });
+        }
+      })
+      .on("postgres_changes", {event:"*", schema:"public", table:"fornecedores"}, payload=>{
+        if(payload.eventType==="DELETE"){
+          setFornecedores(fs=>fs.filter(f=>String(f.id)!==String(payload.old.id)));
+        } else {
+          const novo = fornFromDb(payload.new);
+          setFornecedores(fs=>{
+            const existe = fs.find(f=>String(f.id)===String(novo.id));
+            return existe ? fs.map(f=>String(f.id)===String(novo.id)?novo:f) : [...fs,novo];
+          });
+        }
+      })
+      .on("postgres_changes", {event:"*", schema:"public", table:"usuarios"}, payload=>{
+        if(payload.eventType==="DELETE"){
+          setUsers(us=>us.filter(u=>String(u.id)!==String(payload.old.id)));
+        } else {
+          const novo = userFromDb(payload.new);
+          setUsers(us=>{
+            const existe = us.find(u=>String(u.id)===String(novo.id));
+            return existe ? us.map(u=>String(u.id)===String(novo.id)?novo:u) : [...us,novo];
+          });
+        }
+      })
+      .subscribe();
+
+    // Fallback: polling a cada 60s caso o realtime falhe silenciosamente
+    const fallbackInterval = setInterval(async ()=>{
       try{
         const [dbP, dbT] = await Promise.all([dbGet("pedidos"), dbGet("tarefas")]);
         if(dbP.length>0) setPedidos(dbP.map(pedidoFromDb));
         if(dbT.length>0) setTarefas(limparTarefas(dbT.map(tarefaFromDb)));
       }catch{}
-    }, 30000);
-    return ()=>clearInterval(interval);
+    }, 60000);
+
+    return ()=>{
+      sb.removeChannel(channel);
+      clearInterval(fallbackInterval);
+    };
   },[]);
 
   // Sincronização manual (botão refresh)

@@ -1127,27 +1127,34 @@ function PedidoDetail({open,onClose,pedido,users,obras,fornecedores,cu,onUpdateI
   }
 
   function criarTarefaBoleto(nfNum) {
-    if(!nfNum||!nfNum.trim()){toast("Informe o número da NF antes de criar a tarefa.");return;}
-    const exists = tarefas.find(t=>t.pedidoId===pedido.id&&t.categoria==="boleto"&&t.status!=="resolvida");
-    if(exists) { toast("Já existe tarefa de boleto aberta para este pedido."); return; }
+    if(!nfNum||!nfNum.trim()){toast("⚠️ Informe o número da NF antes de criar a tarefa.");return;}
+    if(!pedido.comprador){toast("❌ Erro: pedido sem comprador definido. Não é possível criar a tarefa.");return;}
+    const exists = tarefas.find(t=>String(t.pedidoId)===String(pedido.id)&&t.categoria==="boleto"&&t.status!=="resolvida");
+    if(exists) { toast("⚠️ Já existe tarefa de boleto aberta para este pedido."); return; }
+    const novaId = uid();
     const nova = {
-      id:uid(), categoria:"boleto",
+      id:novaId, categoria:"boleto",
       title:`Boleto/NF pendente — NF ${nfNum.trim()} — Pedido ${pedido.numero} (${forn.nome})`,
       description:`Almoxarife ${cu.name} informou que a NF ${nfNum.trim()} chegou sem boleto/CT-e. Pedido ${pedido.numero}, Fornecedor: ${forn.nome}. O comprador deve anexar o boleto para que o almoxarife possa confirmar o recebimento.`,
       status:"aberta",
       pedidoId:pedido.id, obra:pedido.obra,
-      assignedTo:Number(pedido.comprador), // começa com comprador
-      criadoPorAlmox:cu.id,               // almoxarife que criou
+      assignedTo:Number(pedido.comprador),
+      criadoPorAlmox:cu.id,
       criadoPorAlmoxNome:cu.name,
       due:pedido.previsaoEntrega||"",
       anexos:[], messages:[], createdBy:cu.name, createdAt:nowTs()
     };
-    setTarefas(ts=>[nova,...ts]);
+    // Atualiza estado de forma garantida (functional update)
+    setTarefas(ts=>{
+      const jaExisteNoState = ts.find(t=>String(t.pedidoId)===String(pedido.id)&&t.categoria==="boleto"&&t.status!=="resolvida");
+      if(jaExisteNoState) return ts; // proteção extra contra duplo-clique
+      return [nova, ...ts];
+    });
     onAddMsg(pedido.id, {id:uid(), userId:cu.id, userName:cu.name, avatar:cu.avatar,
-      text:`🧾 Material recebido sem boleto. **NF ${nfNum.trim()}** — Tarefa criada para o comprador.`,
+      text:`🧾 Material recebido sem boleto. **NF ${nfNum.trim()}** — Tarefa criada para o comprador ${users.find(u=>String(u.id)===String(pedido.comprador))?.name||""}.`,
       type:"sistema", createdAt:nowTs()});
     setNfNumero("");
-    toast("🧾 Tarefa de boleto/NF criada!");
+    toast("🧾 Tarefa de boleto/NF criada para o comprador!");
   }
 
   function handleFile(e) {
@@ -2193,11 +2200,9 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
 
   const filtered=tarefas.filter(t=>{
     // Filtro por papel:
-    // Almoxarife → só vê tarefas atribuídas a ele (geradas pelo fluxo boleto/parcial)
-    // Comprador  → vê tarefas atribuídas a ele
-    // Coordenador → vê tudo
+    // Almoxarife → só vê tarefas atribuídas a ele (fluxo boleto/parcial das suas obras)
+    // Comprador e Coordenador → veem TODAS as tarefas do painel
     if(isAlmoxU && String(t.assignedTo)!==String(cu.id)) return false;
-    if(isCompU  && String(t.assignedTo)!==String(cu.id)) return false;
     // filtros de categoria e status
     if(filterCat!=="all"&&t.categoria!==filterCat)return false;
     if(filterStat==="abertas"&&t.status==="resolvida")return false;

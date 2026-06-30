@@ -75,6 +75,52 @@ const fornFromDb = r => ({
   createdFrom: r.created_from||null
 });
 
+// ── PEDIDOS mappers ────────────────────────────────────────────────────────────
+const pedidoToDb = p => ({
+  id: String(p.id), numero: p.numero, fornecedor: p.fornecedor||null,
+  fornecedor_id: p.fornecedorId?String(p.fornecedorId):null,
+  obra: p.obra?String(p.obra):null, comprador: p.comprador?String(p.comprador):null,
+  valor: p.valor||null, previsao_entrega: p.previsaoEntrega||null,
+  observacao: p.observacao||null, status: p.status||"pendente",
+  itens: p.itens||[], messages: p.messages||[],
+  total_mercadorias: p.totalMercadorias||null, desconto: p.desconto||null,
+  valor_frete: p.valorFrete||null, tipo_frete: p.tipoFrete||null,
+  cond_pagamento: p.condPagamento||null, datas_vencimento: p.datasVencimento||[],
+  local_entrega: p.localEntrega||null, cte_confirmado: !!p.cteConfirmado,
+  created_by: p.createdBy||null,
+});
+const pedidoFromDb = r => ({
+  id: r.id, numero: r.numero, fornecedor: r.fornecedor||"",
+  fornecedorId: r.fornecedor_id||"", obra: r.obra||"", comprador: r.comprador||"",
+  valor: r.valor||"", previsaoEntrega: r.previsao_entrega||"",
+  observacao: r.observacao||"", status: r.status||"pendente",
+  itens: r.itens||[], messages: r.messages||[],
+  totalMercadorias: r.total_mercadorias||"", desconto: r.desconto||"",
+  valorFrete: r.valor_frete||"", tipoFrete: r.tipo_frete||"",
+  condPagamento: r.cond_pagamento||"", datasVencimento: r.datas_vencimento||[],
+  localEntrega: r.local_entrega||"", cteConfirmado: !!r.cte_confirmado,
+  createdBy: r.created_by||"", createdAt: r.created_at||"",
+});
+
+// ── TAREFAS mappers ────────────────────────────────────────────────────────────
+const tarefaToDb = t => ({
+  id: String(t.id), categoria: t.categoria||"acompanhamento", title: t.title||"",
+  description: t.description||null, status: t.status||"aberta",
+  pedido_id: t.pedidoId?String(t.pedidoId):null, obra: t.obra?String(t.obra):null,
+  assigned_to: t.assignedTo?Number(t.assignedTo):null, due: t.due||null,
+  anexos: t.anexos||[], messages: t.messages||[],
+  created_by: t.createdBy||null,
+  resolvida_em: t.resolvidaEm||null, resolvida_por: t.resolvidaPor||null,
+});
+const tarefaFromDb = r => ({
+  id: r.id, categoria: r.categoria, title: r.title, description: r.description||"",
+  status: r.status, pedidoId: r.pedido_id||"", obra: r.obra||"",
+  assignedTo: r.assigned_to, due: r.due||"",
+  anexos: r.anexos||[], messages: r.messages||[],
+  createdBy: r.created_by||"", createdAt: r.created_at||"",
+  resolvidaEm: r.resolvida_em||null, resolvidaPor: r.resolvida_por||null,
+});
+
 // ══ constants ══
 // ── DESIGN TOKENS ────────────────────────────────────────────────────────────
 const G = {
@@ -2195,14 +2241,23 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
   const isCompU  = ["comprador"].includes(cu.role);
   const isCoordU = cu.role==="coordenador";
 
+  // Filtro de comprador — só relevante para coordenador (ele pode ver "todos" ou um específico)
+  const [filterComprador, setFilterComprador] = useState("mine"); // "mine" | "all" | userId
+
   // Limpa seleção ao trocar filtros
-  useEffect(()=>{ setSelTarefa(null); },[filterCat,filterStat]);
+  useEffect(()=>{ setSelTarefa(null); },[filterCat,filterStat,filterComprador]);
 
   const filtered=tarefas.filter(t=>{
     // Filtro por papel:
-    // Almoxarife → só vê tarefas atribuídas a ele (fluxo boleto/parcial das suas obras)
-    // Comprador e Coordenador → veem TODAS as tarefas do painel
+    // Almoxarife    → só vê tarefas atribuídas a ele (fluxo boleto/parcial das suas obras)
+    // Comprador     → vê só as tarefas atribuídas a ele
+    // Coordenador   → por padrão vê só as DELE; pode trocar para "Todos" ou um comprador específico
     if(isAlmoxU && String(t.assignedTo)!==String(cu.id)) return false;
+    if(isCompU  && String(t.assignedTo)!==String(cu.id)) return false;
+    if(isCoordU){
+      if(filterComprador==="mine" && String(t.assignedTo)!==String(cu.id)) return false;
+      if(filterComprador!=="mine" && filterComprador!=="all" && String(t.assignedTo)!==String(filterComprador)) return false;
+    }
     // filtros de categoria e status
     if(filterCat!=="all"&&t.categoria!==filterCat)return false;
     if(filterStat==="abertas"&&t.status==="resolvida")return false;
@@ -2246,7 +2301,27 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
   const catCounts=Object.keys(TCAT).reduce((acc,k)=>({...acc,[k]:tarefas.filter(t=>t.categoria===k&&t.status!=="resolvida").length}),{});
   const tDetail=selTarefa?tarefas.find(t=>t.id===selTarefa.id)||selTarefa:null;
 
+  // Lista de compradores/coordenadores para o seletor (só relevante para coordenador)
+  const compradoresLista = users.filter(u=>["comprador","coordenador"].includes(u.role)&&u.active);
+
   return<div>
+    {/* filtro de comprador — só coordenador vê */}
+    {isCoordU&&(
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,background:G.alt,borderRadius:10,padding:"8px 14px",flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:700,color:G.muted}}>👤 Visualizando tarefas de:</span>
+        <Sel value={filterComprador} onChange={e=>setFilterComprador(e.target.value)} style={{width:240,padding:"5px 10px",fontSize:12}}>
+          <option value="mine">Minhas tarefas ({cu.name})</option>
+          <option value="all">🔍 Todos os compradores</option>
+          {compradoresLista.filter(u=>String(u.id)!==String(cu.id)).map(u=>
+            <option key={u.id} value={u.id}>{u.name}{u.role==="coordenador"?" (Coordenador)":""}</option>
+          )}
+        </Sel>
+        {filterComprador!=="mine"&&<Chip color={G.blue} bg="#E3F2FD" style={{fontSize:10}}>
+          {filterComprador==="all"?"Vendo tudo":"Filtrado"}
+        </Chip>}
+      </div>
+    )}
+
     {/* filtros e controles */}
     <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap",alignItems:"center"}}>
       <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
@@ -2661,11 +2736,8 @@ export default function App(){
   const [users,        setUsers]        = useState(USERS0);      // loaded from Supabase
   const [obras,        setObras]        = useState([]);           // loaded from Supabase
   const [fornecedores, setFornecedores] = useState([]);           // loaded from Supabase
-  const [pedidos,      setPedidos]      = useState(()=>ld(K.pedidos, []));
-  const [tarefas, setTarefas] = useState(()=>{
-    const ts = ld(K.tarefas, []);
-    return limparTarefas(ts);
-  });
+  const [pedidos,      setPedidos]      = useState(()=>ld(K.pedidos, [])); // cache local, sincroniza com Supabase
+  const [tarefas, setTarefas] = useState(()=>limparTarefas(ld(K.tarefas, [])));
   const [events,       setEvents]       = useState(()=>ld(K.events,  []));
   const [atas,         setAtas]         = useState(()=>ld(K.atas,    []));
   const [dbLoading,    setDbLoading]    = useState(true);
@@ -2694,15 +2766,31 @@ export default function App(){
   const [painelOpen,setPainelOpen] = useState(false);
   const [notifsLidas,setNotifsLidas] = useState(()=>ld("fl5_notifs_lidas",[]));
 
-  // Pedidos/tarefas/events/atas → localStorage (fast)
-  useEffect(()=>sv(K.pedidos,  pedidos),  [pedidos]);
+  // Pedidos: localStorage (cache rápido) + Supabase (fonte compartilhada)
   useEffect(()=>{
-    // Limpa duplicatas antes de persistir
+    sv(K.pedidos, pedidos);
+    if(!dbLoading && sb){
+      // Sincroniza cada pedido no Supabase (debounced via timeout simples)
+      const t = setTimeout(()=>{
+        pedidos.forEach(p=>{ dbUpsert("pedidos", pedidoToDb(p)); });
+      }, 600);
+      return ()=>clearTimeout(t);
+    }
+  },[pedidos]);
+
+  // Tarefas: mesma lógica + limpeza de duplicatas
+  useEffect(()=>{
     const limpas = limparTarefas(tarefas);
     if(limpas.length !== tarefas.length){
-      setTarefas(limpas); // força atualização se removeu algo
-    } else {
-      sv(K.tarefas, limpas);
+      setTarefas(limpas);
+      return;
+    }
+    sv(K.tarefas, limpas);
+    if(!dbLoading && sb){
+      const t = setTimeout(()=>{
+        limpas.forEach(tk=>{ dbUpsert("tarefas", tarefaToDb(tk)); });
+      }, 600);
+      return ()=>clearTimeout(t);
     }
   },[tarefas]);
   useEffect(()=>sv(K.events,   events),   [events]);
@@ -2716,7 +2804,10 @@ export default function App(){
     async function loadFromDb(){
       setDbLoading(true);
       try{
-        const [dbU,dbO,dbF] = await Promise.all([dbGet("usuarios"),dbGet("obras"),dbGet("fornecedores")]);
+        const [dbU,dbO,dbF,dbP,dbT] = await Promise.all([
+          dbGet("usuarios"),dbGet("obras"),dbGet("fornecedores"),
+          dbGet("pedidos"),dbGet("tarefas")
+        ]);
         if(dbU.length>0){
           // Sync: update existing users with new emails from USERS0 (preserva senhaHash)
           const merged = USERS0.map(seed=>{
@@ -2739,6 +2830,29 @@ export default function App(){
         }
         setObras(dbO.map(obraFromDb));
         setFornecedores(dbF.map(fornFromDb));
+
+        // Pedidos: Supabase é a fonte de verdade (compartilhado entre todos)
+        if(dbP.length>0){
+          setPedidos(dbP.map(pedidoFromDb));
+        } else {
+          // Sem dados no banco ainda — migra o que tiver no localStorage local (1ª vez)
+          const localPedidos = ld(K.pedidos, []);
+          if(localPedidos.length>0){
+            await Promise.all(localPedidos.map(p=>dbUpsert("pedidos", pedidoToDb(p))));
+          }
+          setPedidos(localPedidos);
+        }
+
+        // Tarefas: mesma lógica
+        if(dbT.length>0){
+          setTarefas(limparTarefas(dbT.map(tarefaFromDb)));
+        } else {
+          const localTarefas = limparTarefas(ld(K.tarefas, []));
+          if(localTarefas.length>0){
+            await Promise.all(localTarefas.map(t=>dbUpsert("tarefas", tarefaToDb(t))));
+          }
+          setTarefas(localTarefas);
+        }
       }catch(e){
         console.warn("DB load failed, using local:", e.message);
         setDbError("Modo offline — dados locais");
@@ -2966,7 +3080,11 @@ export default function App(){
     await dbDelete("fornecedores", Number(id));
   }
 
-  function deletePedido(id){setPedidos(p=>p.filter(x=>x.id!==id));setTarefas(ts=>ts.filter(t=>t.pedidoId!==id));}
+  function deletePedido(id){
+    setPedidos(p=>p.filter(x=>x.id!==id));
+    setTarefas(ts=>ts.filter(t=>t.pedidoId!==id));
+    if(sb){ dbDelete("pedidos", String(id)); }
+  }
   function cancelPedido(id){setPedidos(p=>p.map(x=>x.id===id?{...x,status:"cancelado"}:x));addMsg(id,{id:uid(),userId:cu.id,userName:cu.name,avatar:cu.avatar,text:"❌ Pedido cancelado pelo comprador "+cu.name,type:"sistema",createdAt:nowTs()});}
   const addMsg=(id,m)=>setPedidos(p=>p.map(x=>x.id===id?{...x,messages:[...(x.messages||[]),m]}:x));
   const updateItens=(id,novos,ns,extra={})=>setPedidos(p=>p.map(x=>x.id===id?{...x,itens:novos,status:ns,...extra}:x));

@@ -2137,33 +2137,60 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
 function Dashboard({pedidos,tarefas,users,obras,fornecedores,cu,onOpenPedido,onOpenObra}){
-  const atrasados=pedidos.filter(isAtrasado);
-  const byStat=Object.entries(STATUS).filter(([k])=>k!=="atrasado").map(([k,v])=>({name:v.label.split(" ")[0],value:pedidos.filter(p=>p.status===k).length,color:v.color}));
-  const byObra=obras.filter(o=>o.active).map(o=>({name:o.code,E:pedidos.filter(p=>String(p.obra)===String(o.id)&&p.status==="entregue").length,P:pedidos.filter(p=>String(p.obra)===String(o.id)&&p.status==="pendente").length,T:pedidos.filter(p=>String(p.obra)===String(o.id)).length})).filter(o=>o.T>0).sort((a,b)=>b.T-a.T).slice(0,8);
-  const week=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);const ds=d.toISOString().slice(0,10);return{dia:d.toLocaleDateString("pt-BR",{weekday:"short"}),Criados:pedidos.filter(p=>p.createdAt?.slice(0,10)===ds).length,Entregues:pedidos.filter(p=>p.createdAt?.slice(0,10)===ds&&p.status==="entregue").length};});
-
-  // Pedidos do usuário atual
   const isAlmoxU = ["almoxarife","aux_almoxarife"].includes(cu.role);
-  const isCompU  = ["comprador","coordenador"].includes(cu.role);
+  const isCompU  = ["comprador"].includes(cu.role);
+  const isCoordU = cu.role==="coordenador";
+
+  // Filtro de comprador — disponível para Coordenador (visão completa por padrão, com opção de focar em 1 comprador)
+  const [filtroComprador, setFiltroComprador] = useState("all");
+  const compradoresLista = users.filter(u=>["comprador","coordenador"].includes(u.role)&&u.active);
+
+  // Pedidos visíveis no Dashboard:
+  // - Coordenador → todos, ou filtrados por comprador selecionado
+  // - Comprador   → todos (consistente com o resto do sistema)
+  // - Almoxarife  → todos (mantém os cards/gráficos completos; o card pessoal abaixo é dele)
+  const pedidosVisiveis = isCoordU && filtroComprador!=="all"
+    ? pedidos.filter(p=>String(p.comprador)===String(filtroComprador))
+    : pedidos;
+
+  const atrasados=pedidosVisiveis.filter(isAtrasado);
+  const byStat=Object.entries(STATUS).filter(([k])=>k!=="atrasado").map(([k,v])=>({name:v.label.split(" ")[0],value:pedidosVisiveis.filter(p=>p.status===k).length,color:v.color}));
+  const byObra=obras.filter(o=>o.active).map(o=>({name:o.code,E:pedidosVisiveis.filter(p=>String(p.obra)===String(o.id)&&p.status==="entregue").length,P:pedidosVisiveis.filter(p=>String(p.obra)===String(o.id)&&p.status==="pendente").length,T:pedidosVisiveis.filter(p=>String(p.obra)===String(o.id)).length})).filter(o=>o.T>0).sort((a,b)=>b.T-a.T).slice(0,8);
+  const week=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);const ds=d.toISOString().slice(0,10);return{dia:d.toLocaleDateString("pt-BR",{weekday:"short"}),Criados:pedidosVisiveis.filter(p=>p.createdAt?.slice(0,10)===ds).length,Entregues:pedidosVisiveis.filter(p=>p.createdAt?.slice(0,10)===ds&&p.status==="entregue").length};});
+
   const meusObras = isAlmoxU ? obras.filter(o=>(cu.obras||[]).includes(o.id)) : [];
-  const meusPedidos = isCompU
-    ? pedidos.filter(p=>String(p.comprador)===String(cu.id)).slice(0,5)
-    : isAlmoxU
+  const meusPedidos = isAlmoxU
     ? pedidos.filter(p=>meusObras.find(o=>String(o.id)===String(p.obra))).slice(0,5)
-    : [];
+    : isCoordU
+    ? pedidosVisiveis.slice(0,5)
+    : pedidos.filter(p=>String(p.comprador)===String(cu.id)).slice(0,5);
 
   const cards=[
-    {l:"Total",v:pedidos.length,c:G.greenDark,i:"📋",bg:"#E8F5E9"},
-    {l:"Pendentes",v:pedidos.filter(p=>p.status==="pendente").length,c:G.gold,i:"⏳",bg:"#FFF8E1"},
+    {l:"Total",v:pedidosVisiveis.length,c:G.greenDark,i:"📋",bg:"#E8F5E9"},
+    {l:"Pendentes",v:pedidosVisiveis.filter(p=>p.status==="pendente").length,c:G.gold,i:"⏳",bg:"#FFF8E1"},
     {l:"Atrasados",v:atrasados.length,c:G.orange,i:"⚠️",bg:"#FBE9E7"},
-    {l:"Parciais",v:pedidos.filter(p=>p.status==="parcial").length,c:G.blue,i:"📦",bg:"#E3F2FD"},
-    {l:"Entregues",v:pedidos.filter(p=>p.status==="entregue").length,c:G.green,i:"✅",bg:"#E8F5E9"},
+    {l:"Parciais",v:pedidosVisiveis.filter(p=>p.status==="parcial").length,c:G.blue,i:"📦",bg:"#E3F2FD"},
+    {l:"Entregues",v:pedidosVisiveis.filter(p=>p.status==="entregue").length,c:G.green,i:"✅",bg:"#E8F5E9"},
     {l:"Tarefas Abertas",v:tarefas.filter(t=>t.status==="aberta").length,c:G.red,i:"🔴",bg:"#FFEBEE"},
     {l:"Fornecedores",v:fornecedores.length,c:G.teal,i:"🏢",bg:"#E0F2F1"},
     {l:"Obras Ativas",v:obras.filter(o=>o.active).length,c:G.purple,i:"🏗️",bg:"#F3E5F5"},
   ];
 
   return<div>
+    {/* Filtro de comprador — só Coordenador vê */}
+    {isCoordU&&(
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,background:G.alt,borderRadius:10,padding:"8px 14px",flexWrap:"wrap"}}>
+        <span style={{fontSize:12,fontWeight:700,color:G.muted}}>👤 Desempenho de:</span>
+        <Sel value={filtroComprador} onChange={e=>setFiltroComprador(e.target.value)} style={{width:240,padding:"5px 10px",fontSize:12}}>
+          <option value="all">🔍 Todos (visão completa)</option>
+          {compradoresLista.map(u=>
+            <option key={u.id} value={u.id}>{u.name}{u.role==="coordenador"?" (Coordenador)":""}</option>
+          )}
+        </Sel>
+        {filtroComprador!=="all"&&<Chip color={G.blue} bg="#E3F2FD" style={{fontSize:10}}>Filtrado</Chip>}
+      </div>
+    )}
+
     {/* KPI cards */}
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:10,marginBottom:20}}>
       {cards.map(c=><div key={c.l} style={{background:c.bg,borderRadius:12,padding:"14px 14px",border:"1px solid "+c.c+"25",cursor:"default"}}>
@@ -2173,11 +2200,11 @@ function Dashboard({pedidos,tarefas,users,obras,fornecedores,cu,onOpenPedido,onO
       </div>)}
     </div>
 
-    {/* CARD PERSONALIZADO DO USUÁRIO */}
-    {(isCompU||isAlmoxU)&&meusPedidos.length>0&&(
+    {/* CARD PERSONALIZADO */}
+    {meusPedidos.length>0&&(
       <div style={{background:G.surface,borderRadius:14,padding:18,border:"1px solid "+G.border,marginBottom:16}}>
         <div style={{fontSize:13,fontWeight:800,marginBottom:12,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <span>{isAlmoxU?"📦 Minha(s) Obra(s)":"🛒 Meus Pedidos Recentes"}</span>
+          <span>{isAlmoxU?"📦 Minha(s) Obra(s)":isCoordU?(filtroComprador==="all"?"🛒 Pedidos Recentes (Todos)":"🛒 Pedidos Recentes — "+(compradoresLista.find(u=>String(u.id)===String(filtroComprador))?.name||"")):"🛒 Meus Pedidos Recentes"}</span>
           {isAlmoxU&&meusObras.length>0&&<div style={{display:"flex",gap:6}}>
             {meusObras.map(o=>(
               <button key={o.id} onClick={()=>onOpenObra&&onOpenObra(o)} style={{padding:"4px 10px",borderRadius:8,border:"1.5px solid "+G.blue,background:"#E3F2FD",cursor:"pointer",fontSize:11,fontWeight:700,color:G.blue}}>
@@ -2194,12 +2221,13 @@ function Dashboard({pedidos,tarefas,users,obras,fornecedores,cu,onOpenPedido,onO
             const itens=p.itens||[];
             const nEnt=itens.filter(i=>i.status==="entregue").length;
             const nTot=itens.length;
+            const compradorNome=users.find(u=>String(u.id)===String(p.comprador))?.name;
             return(
               <div key={p.id} onClick={()=>onOpenPedido(p)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:8,background:G.alt,cursor:"pointer",border:"1px solid "+G.border}}>
                 <span style={{fontSize:15}}>{cfg.icon}</span>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Ped. {p.numero} — {p.fornecedor||"—"}</div>
-                  <div style={{fontSize:11,color:G.muted}}>{obra?obra.code+" — "+obra.name:"—"} · Prev: {fmtD(p.previsaoEntrega)}{nTot>0?" · "+nEnt+"/"+nTot+" entregues":""}</div>
+                  <div style={{fontSize:11,color:G.muted}}>{obra?obra.code+" — "+obra.name:"—"} · Prev: {fmtD(p.previsaoEntrega)}{nTot>0?" · "+nEnt+"/"+nTot+" entregues":""}{isCoordU&&compradorNome?" · "+compradorNome:""}</div>
                 </div>
                 <Chip color={cfg.color} bg={cfg.bg} style={{fontSize:10}}>{cfg.label}</Chip>
                 {atrasado&&<Chip color={G.orange} bg="#FBE9E7" style={{fontSize:10}}>⚠️</Chip>}

@@ -220,30 +220,9 @@ const ld = (k,fb) => { try{const v=localStorage.getItem(k);return v?JSON.parse(v
 const sv = (k,v)  => { try{localStorage.setItem(k,JSON.stringify(v));}catch{} };
 
 // ── RESET DE VERSÃO ───────────────────────────────────────────────────────────
-// Se DATA_VERSION mudou desde o último acesso, limpa tudo e recarrega com dados novos
-(function checkVersion(){
-  try{
-    const stored = localStorage.getItem("fl5_data_version");
-    if(stored !== DATA_VERSION){
-      // Guarda pedidos e tarefas se existirem (não perde dados operacionais)
-      const pedidos  = localStorage.getItem("fl5_pedidos");
-      const tarefas  = localStorage.getItem("fl5_tarefas");
-      const events   = localStorage.getItem("fl5_events");
-      const atas     = localStorage.getItem("fl5_atas");
-      const forn     = localStorage.getItem("fl5_forn");
-      // Limpa tudo
-      Object.keys(localStorage).filter(k=>k.startsWith("fl5_")).forEach(k=>localStorage.removeItem(k));
-      // Restaura dados operacionais
-      if(pedidos) localStorage.setItem("fl5_pedidos", pedidos);
-      if(tarefas) localStorage.setItem("fl5_tarefas", tarefas);
-      if(events)  localStorage.setItem("fl5_events",  events);
-      if(atas)    localStorage.setItem("fl5_atas",     atas);
-      if(forn)    localStorage.setItem("fl5_forn",     forn);
-      // Grava nova versão
-      localStorage.setItem("fl5_data_version", DATA_VERSION);
-    }
-  }catch{}
-})();
+// REMOVIDO: usuários, obras, fornecedores, pedidos e tarefas agora vivem no Supabase.
+// localStorage é apenas cache local — nunca mais precisamos limpá-lo ao mudar de versão.
+// Login (fl5_li, fl5_cu) e preferências pessoais (fl5_notifs_lidas) também são preservados.
 
 // ── IA CALL ───────────────────────────────────────────────────────────────────
 async function callIA(messages, maxTokens=1000, system="Assistente FACTEN.") {
@@ -2863,7 +2842,37 @@ export default function App(){
       setDbLoading(false);
     }
     loadFromDb();
+
+    // Sincronização periódica: busca pedidos/tarefas novos de outros usuários a cada 30s
+    const interval = setInterval(async ()=>{
+      if(!sb) return;
+      try{
+        const [dbP, dbT] = await Promise.all([dbGet("pedidos"), dbGet("tarefas")]);
+        if(dbP.length>0) setPedidos(dbP.map(pedidoFromDb));
+        if(dbT.length>0) setTarefas(limparTarefas(dbT.map(tarefaFromDb)));
+      }catch{}
+    }, 30000);
+    return ()=>clearInterval(interval);
   },[]);
+
+  // Sincronização manual (botão refresh)
+  async function syncAgora(){
+    if(!sb){ toast("⚠️ Sem conexão com o banco."); return; }
+    toast("🔄 Sincronizando...");
+    try{
+      const [dbP, dbT, dbO, dbF, dbU] = await Promise.all([
+        dbGet("pedidos"), dbGet("tarefas"), dbGet("obras"), dbGet("fornecedores"), dbGet("usuarios")
+      ]);
+      if(dbP.length>0) setPedidos(dbP.map(pedidoFromDb));
+      if(dbT.length>0) setTarefas(limparTarefas(dbT.map(tarefaFromDb)));
+      if(dbO.length>0) setObras(dbO.map(obraFromDb));
+      if(dbF.length>0) setFornecedores(dbF.map(fornFromDb));
+      if(dbU.length>0) setUsers(dbU.map(userFromDb));
+      toast("✅ Sincronizado!");
+    }catch(e){
+      toast("❌ Erro ao sincronizar: "+e.message);
+    }
+  }
 
   const toast = m => setToastMsg(m);
 
@@ -3261,6 +3270,7 @@ export default function App(){
           </>}
           {/* Notificações */}
           <div style={{position:"relative"}}>
+            <button onClick={syncAgora} title="Sincronizar agora" style={{background:"none",border:"none",cursor:"pointer",fontSize:19,padding:"4px 8px",position:"relative"}}>🔄</button>
             <button onClick={()=>setPainelOpen(true)} title="Painel de Acompanhamento" style={{background:"none",border:"none",cursor:"pointer",fontSize:19,padding:"4px 8px",position:"relative"}}>📊</button>
             <button onClick={()=>setNotifOpen(n=>!n)} style={{background:"none",border:"none",cursor:"pointer",fontSize:19,padding:"4px 8px",position:"relative"}}>
               🔔{notifs.filter(n=>!notifsLidas.includes(n.id)).length>0&&<span style={{position:"absolute",top:0,right:0,background:G.red,color:"#fff",borderRadius:20,fontSize:8,fontWeight:800,padding:"1px 4px"}}>{notifs.filter(n=>!notifsLidas.includes(n.id)).length}</span>}

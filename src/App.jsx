@@ -1,3 +1,4 @@
+// BUILD-MARKER: dashboard-filtro-v3
 import { useState, useEffect, useRef, useCallback } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, Legend } from "recharts";
 import { createClient } from "@supabase/supabase-js";
@@ -2227,7 +2228,11 @@ function Dashboard({pedidos,tarefas,users,obras,fornecedores,cu,onOpenPedido,onO
                 <span style={{fontSize:15}}>{cfg.icon}</span>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>Ped. {p.numero} — {p.fornecedor||"—"}</div>
-                  <div style={{fontSize:11,color:G.muted}}>{obra?obra.code+" — "+obra.name:"—"} · Prev: {fmtD(p.previsaoEntrega)}{nTot>0?" · "+nEnt+"/"+nTot+" entregues":""}{isCoordU&&compradorNome?" · "+compradorNome:""}</div>
+                  <div style={{fontSize:11,color:G.muted}}>
+                    {obra&&<span onClick={e=>{e.stopPropagation();onOpenObra&&onOpenObra(obra);}} style={{cursor:onOpenObra?"pointer":"default",textDecoration:onOpenObra?"underline":"none"}}>{obra.code} — {obra.name}</span>}
+                    {!obra&&"—"} · Prev: {fmtD(p.previsaoEntrega)}{nTot>0?" · "+nEnt+"/"+nTot+" entregues":""}
+                    {isCoordU&&compradorNome&&<> · <span onClick={e=>{e.stopPropagation();setFiltroComprador(String(p.comprador));}} style={{cursor:"pointer",textDecoration:"underline",color:G.blue}}>{compradorNome}</span></>}
+                  </div>
                 </div>
                 <Chip color={cfg.color} bg={cfg.bg} style={{fontSize:10}}>{cfg.label}</Chip>
                 {atrasado&&<Chip color={G.orange} bg="#FBE9E7" style={{fontSize:10}}>⚠️</Chip>}
@@ -2896,6 +2901,7 @@ export default function App(){
   const [search,  setSearch]  = useState("");
   const [fStatus, setFStatus] = useState("all");
   const [fObra,   setFObra]   = useState("all");
+  const [fComprador, setFComprador] = useState("all"); // "all" | "mine" | userId
   const [fCat,    setFCat]    = useState("all");
   const [showPF,  setShowPF]  = useState(false);
   const [detailP, setDetailP] = useState(null);
@@ -3365,17 +3371,23 @@ export default function App(){
   });
 
   const isAlmoxCu = ["almoxarife","aux_almoxarife"].includes(cu.role);
+  const isCoordCu = cu.role==="coordenador";
+  const compradoresListaP = users.filter(u=>["comprador","coordenador"].includes(u.role)&&u.active);
 
   const filteredP=pedidos.filter(p=>{
     const o=obras.find(x=>String(x.id)===String(p.obra));
     // Almoxarife vê pedidos das obras onde ele é o almoxarife responsável
-    // Usa String() nos dois lados para evitar mismatch de tipo
     if(isAlmoxCu){
       const obraDoAlmox = obras.find(ob=>
         String(ob.id)===String(p.obra) &&
         String(ob.almoxarife)===String(cu.id)
       );
       if(!obraDoAlmox) return false;
+    }
+    // Filtro de comprador — disponível para Comprador e Coordenador
+    if(!isAlmoxCu){
+      if(fComprador==="mine" && String(p.comprador)!==String(cu.id)) return false;
+      if(fComprador!=="mine" && fComprador!=="all" && String(p.comprador)!==String(fComprador)) return false;
     }
     return(fStatus==="all"||p.status===fStatus)&&(fObra==="all"||String(p.obra)===fObra)&&(!search||[p.numero,p.fornecedor,o?.name,o?.code].some(v=>v?.toLowerCase().includes(search.toLowerCase())));
   });
@@ -3496,6 +3508,13 @@ export default function App(){
               <option value="all">Todas as obras</option>
               {obras.filter(o=>o.active).map(o=><option key={o.id} value={o.id}>{o.code} — {o.name}</option>)}
             </select>
+            {!isAlmoxCu&&(
+              <select value={fComprador} onChange={e=>setFComprador(e.target.value)} style={{height:32,borderRadius:8,border:"1.5px solid #DDE8DD",fontSize:12,padding:"0 8px",outline:"none",background:"#fff"}}>
+                <option value="all">Todos os compradores</option>
+                <option value="mine">Meus pedidos</option>
+                {compradoresListaP.filter(u=>String(u.id)!==String(cu.id)).map(u=><option key={u.id} value={u.id}>{u.name}{u.role==="coordenador"?" (Coord.)":""}</option>)}
+              </select>
+            )}
             {isComp&&<Btn onClick={()=>setShowPF(true)} size="sm">+ Novo Pedido</Btn>}
           </>}
           {/* Notificações */}

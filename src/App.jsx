@@ -1836,7 +1836,26 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
     const newId = oEdit ? Number(oEdit) : (obras.length>0 ? Math.max(...obras.map(x=>Number(x.id)||0))+1 : 1);
     const saved = {...oForm, id:newId};
     toast(oEdit?"💾 Atualizando obra…":"💾 Criando obra…");
-    try { await doSaveObra(saved); setOEdit(null); setOForm(oBlank); }
+    try {
+      await doSaveObra(saved);
+
+      // ── Sincroniza usuario.obras[] a partir do almoxarife definido aqui ──
+      if(saved.almoxarife){
+        const almoxUser = users.find(u=>String(u.id)===String(saved.almoxarife));
+        if(almoxUser && !(almoxUser.obras||[]).includes(saved.id)){
+          await doSaveUser({...almoxUser, obras:[...(almoxUser.obras||[]), saved.id]});
+        }
+      }
+      // Remove esta obra de quem não é mais o almoxarife responsável
+      const outrosAlmoxComEstaObra = users.filter(u=>
+        String(u.id)!==String(saved.almoxarife) && (u.obras||[]).includes(saved.id)
+      );
+      for(const u of outrosAlmoxComEstaObra){
+        await doSaveUser({...u, obras:(u.obras||[]).filter(oid=>oid!==saved.id)});
+      }
+
+      setOEdit(null); setOForm(oBlank);
+    }
     catch(e){ toast("❌ Erro ao salvar obra: "+e.message); }
   }
 
@@ -1884,6 +1903,26 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
     toast(uEdit?"💾 Salvando alterações…":"💾 Criando usuário…");
     try {
       await doSaveUser(saved);
+
+      // ── Sincroniza obra.almoxarife a partir das obras marcadas aqui ──
+      if(["almoxarife","aux_almoxarife"].includes(saved.role)){
+        const obrasMarcadas = saved.obras||[];
+        // Para cada obra marcada: define este usuário como almoxarife responsável
+        for(const obraId of obrasMarcadas){
+          const obra = obras.find(o=>String(o.id)===String(obraId));
+          if(obra && String(obra.almoxarife)!==String(saved.id)){
+            await doSaveObra({...obra, almoxarife:saved.id});
+          }
+        }
+        // Para obras que tinham este usuário como almoxarife mas foram desmarcadas: remove
+        const obrasComEsteAlmox = obras.filter(o=>String(o.almoxarife)===String(saved.id));
+        for(const obra of obrasComEsteAlmox){
+          if(!obrasMarcadas.includes(obra.id)){
+            await doSaveObra({...obra, almoxarife:null});
+          }
+        }
+      }
+
       setUEdit(null);
       setUForm(uBlank);
     } catch(e) {
@@ -1989,14 +2028,25 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
               {Object.entries(ROLES).map(([k,v])=><option key={k} value={k}>{v}</option>)}
             </select>
           </Fld>
-          {["almoxarife","aux_almoxarife"].includes(uForm.role)&&<Fld label="Obras vinculadas">
+          {["almoxarife","aux_almoxarife"].includes(uForm.role)&&<Fld label="Obras vinculadas (define o almoxarife responsável)">
+            <div style={{background:"#E8F5E9",border:"1px solid #A5D6A7",borderRadius:6,padding:"6px 10px",marginBottom:6,fontSize:10,color:G.greenDark}}>
+              💡 Marcar uma obra aqui também a vincula como responsável — mesma informação da aba "Obras".
+            </div>
             <div style={{background:"#fff",borderRadius:8,padding:"8px 10px",maxHeight:120,overflowY:"auto"}}>
-              {obras.filter(o=>o.active).map(o=>(
-                <label key={o.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,cursor:"pointer",fontSize:12}}>
-                  <input type="checkbox" checked={(uForm.obras||[]).includes(o.id)} onChange={()=>{const cur=uForm.obras||[];setU("obras",cur.includes(o.id)?cur.filter(x=>x!==o.id):[...cur,o.id]);}}/>
-                  {o.code} — {o.name}
-                </label>
-              ))}
+              {obras.filter(o=>o.active).map(o=>{
+                const jaTemOutroAlmox = o.almoxarife && String(o.almoxarife)!==String(uEdit) && !((uForm.obras||[]).includes(o.id));
+                const outroAlmox = jaTemOutroAlmox ? users.find(u=>String(u.id)===String(o.almoxarife)) : null;
+                return(
+                  <label key={o.id} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,cursor:"pointer",fontSize:12}}>
+                    <input type="checkbox" checked={(uForm.obras||[]).includes(o.id)} onChange={()=>{
+                      const cur=uForm.obras||[];
+                      setU("obras",cur.includes(o.id)?cur.filter(x=>x!==o.id):[...cur,o.id]);
+                    }}/>
+                    <span>{o.code} — {o.name}</span>
+                    {outroAlmox&&<span style={{fontSize:9,color:G.orange}}>(atual: {outroAlmox.name})</span>}
+                  </label>
+                );
+              })}
             </div>
           </Fld>}
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}><input type="checkbox" id="uact" checked={uForm.active} onChange={e=>setU("active",e.target.checked)}/><label htmlFor="uact" style={{fontSize:13}}>Ativo</label></div>
@@ -2937,6 +2987,24 @@ export default function App(){
   }
 
   const toast = m => setToastMsg(m);
+
+  // ── RECONCILIAÇÃO: cria tarefa de acompanhamento para pedidos que não têm ──
+  // (resolve pedidos antigos criados antes da sincronização total com o Supabase)
+  useEffect(()=>{
+    if(dbLoading) return; // espera carregar tudo primeiro
+    const semTarefa = pedidos.filter(p=>
+      !["cancelado","entregue"].includes(p.status) &&
+      !tarefas.find(t=>String(t.pedidoId)===String(p.id) && t.categoria==="acompanhamento")
+    );
+    if(semTarefa.length===0) return;
+    const novasTarefas = semTarefa.map(p=>{
+      const obra = obras.find(o=>String(o.id)===String(p.obra));
+      const forn = fornecedores.find(f=>String(f.id)===String(p.fornecedorId)) || {nome:p.fornecedor};
+      const comprador = users.find(u=>String(u.id)===String(p.comprador));
+      return buildAcompanhamentoTask(p, forn, obra, comprador);
+    });
+    setTarefas(ts=>[...novasTarefas, ...ts]);
+  },[dbLoading, pedidos.length, obras.length, users.length, fornecedores.length]);
 
   // auto-criar tarefas de atraso
   // Fecha tarefas órfãs: pedido entregue mas ainda tem tarefas abertas (exceto boleto)

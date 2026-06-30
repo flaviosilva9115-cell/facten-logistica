@@ -2312,7 +2312,7 @@ function TarefaRow({t,pedidos,users,obras,onClick,onQuickStatus,toast}){
 }
 
 // ── TAREFAS PAGE ──────────────────────────────────────────────────────────────
-function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
+function TarefasPage({tarefas,setTarefas,pedidos,setPedidos,users,obras,cu,toast}){
   const [filterCat,setFilterCat]=useState("all");
   const [filterStat,setFilterStat]=useState("abertas");
   const [selTarefa,setSelTarefa]=useState(null);
@@ -2372,6 +2372,18 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
           toast("⚠️ O comprador ainda não enviou o boleto.");
           return;
         }
+        // Confirma o ciclo de boleto: encerra para os dois lados + registra no chat do pedido
+        setTarefas(ts=>ts.map(x=>x.id===id?{...x,status:"resolvida",resolvidaEm:nowTs(),resolvidaPor:cu.name}:x));
+        if(t.pedidoId && setPedidos){
+          setPedidos(ps=>ps.map(p=>p.id===t.pedidoId?{...p,messages:[...(p.messages||[]),{
+            id:uid(), userId:cu.id, userName:cu.name, avatar:cu.avatar,
+            text:"✅ Boleto/NF **confirmado e baixado** pelo almoxarife "+cu.name+". Ciclo de boleto encerrado.",
+            type:"sistema", createdAt:nowTs()
+          }]}:p));
+        }
+        if(selTarefa?.id===id)setSelTarefa(st=>({...st,status}));
+        toast("✅ Boleto confirmado — ciclo encerrado para ambos!");
+        return;
       }
     }
     setTarefas(ts=>ts.map(t=>t.id===id?{...t,status}:t));
@@ -2492,9 +2504,27 @@ function TarefasPage({tarefas,setTarefas,pedidos,users,obras,cu,toast}){
                             {isB&&<span style={{fontSize:10,background:temAnexo?"#E8F5E9":"#F3E5F5",color:temAnexo?G.green:G.purple,borderRadius:10,padding:"1px 6px",fontWeight:700}}>{temAnexo?"📎 Boleto anexado":"🧾 Aguardando boleto"}</span>}
                           </div>
                         </div>
-                        <div style={{display:"flex",gap:4,flexShrink:0}}>
-                          {t.status!=="resolvida"&&<button onClick={e=>{e.stopPropagation();quickStatus(t.id,"andamento");}} title="Em andamento" style={{padding:"3px 8px",borderRadius:6,border:"1.5px solid "+G.gold,background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:G.gold}}>▶</button>}
-                          {t.status!=="resolvida"&&<button onClick={e=>{e.stopPropagation();quickStatus(t.id,"resolvida");}} title="Concluir" style={{padding:"3px 8px",borderRadius:6,border:"1.5px solid "+G.green,background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:G.green}}>✅</button>}
+                        <div style={{display:"flex",gap:4,flexShrink:0,alignItems:"center"}}>
+                          {/* Boleto com anexo + almoxarife: mostra download direto + confirmar */}
+                          {isB&&temAnexo&&t.status==="andamento"&&["almoxarife","aux_almoxarife","coordenador"].includes(cu.role)&&(
+                            <>
+                              {(t.anexos||[]).slice(0,1).map(a=>(
+                                <a key={a.id} href={a.data} download={a.name} onClick={e=>e.stopPropagation()}
+                                  title={"Baixar "+a.name}
+                                  style={{padding:"3px 8px",borderRadius:6,border:"1.5px solid "+G.blue,background:"none",fontSize:10,fontWeight:700,color:G.blue,textDecoration:"none"}}>
+                                  ⬇{(t.anexos||[]).length>1?" ("+t.anexos.length+")":""}
+                                </a>
+                              ))}
+                              <button onClick={e=>{e.stopPropagation();quickStatus(t.id,"resolvida");}}
+                                title="Confirmar recebimento e encerrar"
+                                style={{padding:"3px 10px",borderRadius:6,border:"none",background:G.green,cursor:"pointer",fontSize:10,fontWeight:700,color:"#fff"}}>
+                                ✅ Confirmar
+                              </button>
+                            </>
+                          )}
+                          {/* Demais tarefas: botões padrão */}
+                          {!(isB&&temAnexo&&t.status==="andamento")&&t.status!=="resolvida"&&<button onClick={e=>{e.stopPropagation();quickStatus(t.id,"andamento");}} title="Em andamento" style={{padding:"3px 8px",borderRadius:6,border:"1.5px solid "+G.gold,background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:G.gold}}>▶</button>}
+                          {!(isB&&temAnexo&&t.status==="andamento")&&t.status!=="resolvida"&&<button onClick={e=>{e.stopPropagation();quickStatus(t.id,"resolvida");}} title="Concluir" style={{padding:"3px 8px",borderRadius:6,border:"1.5px solid "+G.green,background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:G.green}}>✅</button>}
                         </div>
                       </div>
                     );
@@ -3524,7 +3554,7 @@ export default function App(){
               </div>
           )}
 
-          {page==="tarefas"&&<TarefasPage tarefas={tarefas} setTarefas={setTarefas} pedidos={pedidos} users={users} obras={obras} cu={cu} toast={toast}/>}
+          {page==="tarefas"&&<TarefasPage tarefas={tarefas} setTarefas={setTarefas} pedidos={pedidos} setPedidos={setPedidos} users={users} obras={obras} cu={cu} toast={toast}/>}
         </div>
       </div>
 

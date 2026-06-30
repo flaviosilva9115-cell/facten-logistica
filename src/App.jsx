@@ -1812,7 +1812,59 @@ function ResetSenha({userId,users,onSave}){
   </>;
 }
 
-function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFornecedores,saveUser,removeUser,saveObra,removeObra,saveForn,removeForn,toast}){
+
+// ── ZONA DE PERIGO — Excluir todos os pedidos/tarefas (reimplantação) ────────
+function ZonaPerigo({pedidos,tarefas,setPedidos,setTarefas,toast}){
+  const [confirmando,setConfirmando] = useState(false);
+  const [digitado,setDigitado] = useState("");
+
+  async function excluirTudo(){
+    if(digitado!=="EXCLUIR"){toast("⚠️ Digite EXCLUIR exatamente para confirmar.");return;}
+    toast("🗑️ Excluindo todos os pedidos e tarefas...");
+    try{
+      if(sb){
+        // Remove todos os registros do Supabase
+        await sb.from("pedidos").delete().neq("id","___none___");
+        await sb.from("tarefas").delete().neq("id","___none___");
+      }
+      setPedidos([]);
+      setTarefas([]);
+      setConfirmando(false);
+      setDigitado("");
+      toast("✅ Todos os pedidos e tarefas foram excluídos. Pronto para reimplantação.");
+    }catch(e){
+      toast("❌ Erro ao excluir: "+e.message);
+    }
+  }
+
+  if(!confirmando) return(
+    <button onClick={()=>setConfirmando(true)}
+      style={{padding:"6px 12px",borderRadius:8,border:"1.5px solid "+G.red,background:"none",cursor:"pointer",fontSize:11,fontWeight:700,color:G.red}}>
+      🗑️ Zona de Perigo
+    </button>
+  );
+
+  return(
+    <div style={{background:"#FFEBEE",border:"2px solid "+G.red,borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+      <span style={{fontSize:11,fontWeight:800,color:G.red}}>
+        ⚠️ Excluir TODOS os {pedidos.length} pedidos e {tarefas.length} tarefas? Ação irreversível.
+      </span>
+      <input value={digitado} onChange={e=>setDigitado(e.target.value)} placeholder='Digite "EXCLUIR"'
+        style={{padding:"5px 10px",borderRadius:6,border:"1.5px solid "+G.red,fontSize:11,width:140}}/>
+      <button onClick={excluirTudo} disabled={digitado!=="EXCLUIR"}
+        style={{padding:"5px 12px",borderRadius:6,border:"none",cursor:digitado==="EXCLUIR"?"pointer":"not-allowed",
+          opacity:digitado==="EXCLUIR"?1:0.4,background:G.red,color:"#fff",fontSize:11,fontWeight:700}}>
+        Confirmar Exclusão
+      </button>
+      <button onClick={()=>{setConfirmando(false);setDigitado("");}}
+        style={{padding:"5px 10px",borderRadius:6,border:"1.5px solid "+G.border,background:"#fff",cursor:"pointer",fontSize:11,color:G.muted}}>
+        Cancelar
+      </button>
+    </div>
+  );
+}
+
+function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFornecedores,saveUser,removeUser,saveObra,removeObra,saveForn,removeForn,toast,pedidos,tarefas,setPedidos,setTarefas}){
   // Always use the DB-aware functions passed from App
   const doSaveUser   = saveUser;
   const doRemoveUser = removeUser;
@@ -1938,6 +1990,7 @@ function Settings({open,onClose,users,obras,fornecedores,setUsers,setObras,setFo
       <div style={{display:"flex",gap:8,marginBottom:20}}>{TB("obras","🏗️ Obras")}{TB("fornecedores","🏢 Fornecedores")}{TB("users","👥 Usuários")}</div>
       <div style={{background:"#E8F5E9",border:"1px solid #A5D6A7",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12,color:G.greenDark,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
         <span>🔐 Área restrita ao Coordenador de Suprimentos. Alterações impactam todo o sistema.</span>
+        <ZonaPerigo pedidos={pedidos} tarefas={tarefas} setPedidos={setPedidos} setTarefas={setTarefas} toast={toast}/>
         <div style={{background:"#FFF8E1",border:"1px solid #F4C430",borderRadius:8,padding:"8px 14px"}}>
           <div style={{fontSize:12,fontWeight:800,color:"#5D4037",marginBottom:2}}>🔑 Senha provisória de todos os usuários</div>
           <div style={{fontSize:16,fontWeight:800,color:"#E65100",letterSpacing:"0.1em",fontFamily:"monospace"}}>facten2025</div>
@@ -2836,20 +2889,9 @@ export default function App(){
           dbGet("pedidos"),dbGet("tarefas")
         ]);
         if(dbU.length>0){
-          // Sync: update existing users with new emails from USERS0 (preserva senhaHash)
-          const merged = USERS0.map(seed=>{
-            const existing = dbU.find(d=>d.id===seed.id);
-            if(existing){
-              // Keep existing password but update email/name if changed in seed
-              return userFromDb({...existing, name:seed.name, email:seed.email, role:seed.role, avatar:seed.avatar});
-            }
-            return seed;
-          });
-          // Also include any users added via Settings (not in USERS0)
-          const extraUsers = dbU.filter(d=>!USERS0.find(s=>s.id===d.id)).map(userFromDb);
-          setUsers([...merged, ...extraUsers]);
-          // Sync updated users back to DB
-          await Promise.all(merged.map(u=>dbUpsert("usuarios",userToDb(u))));
+          // ── Supabase é a ÚNICA fonte de verdade — sem merge, sem sobrescrever ──
+          // senha, nome, e-mail, role: tudo vem direto do banco, sem reset.
+          setUsers(dbU.map(userFromDb));
         } else {
           // Primeiro deploy: seed com USERS0
           await Promise.all(USERS0.map(u=>dbUpsert("usuarios",userToDb(u))));
@@ -3508,7 +3550,8 @@ export default function App(){
         saveUser={saveUser} removeUser={removeUser}
         saveObra={saveObra} removeObra={removeObra}
         saveForn={saveForn} removeForn={removeForn}
-        toast={toast}/>
+        toast={toast} pedidos={pedidos} tarefas={tarefas}
+        setPedidos={setPedidos} setTarefas={setTarefas}/>
 
       <Toast msg={toastMsg} onDone={()=>setToastMsg("")}/>
     </div>
